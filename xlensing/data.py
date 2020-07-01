@@ -163,9 +163,10 @@ def stack(clusterbkgs,bins_lims,Nboot=200):
     - e_t the tangential component of the shear
     - e_x the cross component of the shear
     - W the weights of the e_t and e_x measurements
-    - M the estimation of multiplicative biases 
     - R the angular diameter radius in Mpc/h between the cluster centre and the background
     galaxy position.
+    - M the estimation of multiplicative biases 
+
     
     bins_lims = an array containing the bin lower and upper bounds
     
