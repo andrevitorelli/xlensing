@@ -130,7 +130,7 @@ def cluster_lensing(cluster,sources, radius):
     bkg_condition = region[:,2]>1.1*cl_z +0.1
     bkg_region = region[bkg_condition,:]
     
-    sigs = sigmacrit(cl_z,bkg_region[:,2])
+    sigs = sigmacrit(cl_z,bkg_region[:,2])/1e12
     rads, theta = equatorial_to_polar(bkg_region[:,0],
                     bkg_region[:,1],
                     cl_RA,
@@ -163,42 +163,85 @@ def stack(clusterbkgs,bins_lims,Nboot=200):
     - e_t the tangential component of the shear
     - e_x the cross component of the shear
     - W the weights of the e_t and e_x measurements
+    - M the estimation of multiplicative biases 
     - R the angular diameter radius in Mpc/h between the cluster centre and the background
     galaxy position.
-    - M the estimation of multiplicative biases 
-
     
     bins_lims = an array containing the bin lower and upper bounds
     
     Nboot = the number of resamplings desired
     """
 
-    resample=np.random.randint(0,len(clusterbkgs),(Nboot,len(clusterbkgs)))
     N=len(bins_lims)
-    Delta_Sigmas = np.empty((Nboot,N))
-    Delta_Xigmas = np.empty((Nboot,N))
-    for sampleNo in range(len(resample)):
-        stake = np.hstack([clusterbkgs[i] for i in resample[sampleNo]])
+    if len(clusterbkgs) == 1:
+        bkg = clusterbkgs[0]
+        countgals = len(bkg.T)
+        galindex = np.arange(countgals)
+        Delta_Sigmas = []
+        Delta_Xigmas = []
+        j = 0
+        while j < Nboot:
+            print('Try: {}'.format(j),end='\r')
+            choices=np.random.choice(galindex,countgals,p=bkg[3,:]/sum(bkg[3,:]))
+            stake = bkg[:,choices]
+            try:
+                Delta_Sigmas_radii = []
+                Delta_Xigmas_radii = []
+                
+                for radius in range(N):
+                    bin_max  = stake[:,stake[4,:]<bins_lims[radius,1]]
+                    bin_min= bin_max[:,bin_max[4,:]>bins_lims[radius,0]]
+                    #print(len(bin_min.T), end= " ")
+                    Sigma = np.average(bin_min[0,:]*bin_min[1,:],weights= bin_min[3,:]/(bin_min[0,:]**2))
+                    Xigma = np.average(bin_min[0,:]*bin_min[2,:],weights= bin_min[3,:]/(bin_min[0,:]**2))
+                    One_plus_K = np.average(bin_min[5,:]+1,weights= bin_min[3,:]/(bin_min[0,:]**2))
+                    Delta_Sigmas_radii.append(Sigma/One_plus_K)
+                    Delta_Xigmas_radii.append(Xigma/One_plus_K)
+                    
+                Delta_Sigmas.append(Delta_Sigmas_radii)
+                Delta_Xigmas.append(Delta_Xigmas_radii)
+                j = j+1
+            except:
+                print('Empty bin!')
+                 
 
-        for radius in range(N):
-            bin_max  = stake[:,stake[4,:]<bins_lims[radius,1]]
-
-            bin_min= bin_max[:,bin_max[4,:]>bins_lims[radius,0]]
-
-            Sigma = np.average(bin_min[0,:]*bin_min[1,:],weights= bin_min[3,:]/(bin_min[0,:]**2))
-            Xigma = np.average(bin_min[0,:]*bin_min[2,:],weights= bin_min[3,:]/(bin_min[0,:]**2))
-            One_plus_K = np.average(bin_min[5,:]+1,weights= bin_min[3,:]/(bin_min[0,:]**2))
             
-            Delta_Sigmas[sampleNo,radius] = Sigma/One_plus_K
-            Delta_Xigmas[sampleNo,radius] = Xigma/One_plus_K
+        Delta_Sigmas = np.array(Delta_Sigmas)
+        Delta_Xigmas = np.array(Delta_Xigmas)
+        sigmas_cov=np.cov(Delta_Sigmas.T)
+        sigmas = np.mean(Delta_Sigmas,axis=0)
+        xigmas = np.mean(Delta_Xigmas,axis=0)
+        xigmas_cov = np.cov(Delta_Xigmas.T)
+        
+    
+    
+    
+    
+    else:
+        resample=np.random.randint(0,len(clusterbkgs),(Nboot,len(clusterbkgs)))
+        Delta_Sigmas = np.empty((Nboot,N))
+        Delta_Xigmas = np.empty((Nboot,N))
+        for sampleNo in range(len(resample)):
+            stake = np.hstack([clusterbkgs[i] for i in resample[sampleNo]])
 
-        del stake
+            for radius in range(N):
+                bin_max  = stake[:,stake[4,:]<bins_lims[radius,1]]
 
+                bin_min= bin_max[:,bin_max[4,:]>bins_lims[radius,0]]
 
-    sigmas_cov=np.cov(Delta_Sigmas.T)
-    sigmas = np.mean(Delta_Sigmas,axis=0)
-    xigmas = np.mean(Delta_Xigmas,axis=0)
-    xigmas_cov = np.cov(Delta_Xigmas.T)
+                Sigma = np.average(bin_min[0,:]*bin_min[1,:],weights= bin_min[3,:]/(bin_min[0,:]**2))
+                Xigma = np.average(bin_min[0,:]*bin_min[2,:],weights= bin_min[3,:]/(bin_min[0,:]**2))
+                One_plus_K = np.average(bin_min[5,:]+1,weights= bin_min[3,:]/(bin_min[0,:]**2))
+
+                Delta_Sigmas[sampleNo,radius] = Sigma/One_plus_K
+                Delta_Xigmas[sampleNo,radius] = Xigma/One_plus_K
+
+            del stake
+
+        sigmas_cov=np.cov(Delta_Sigmas.T)
+        sigmas = np.mean(Delta_Sigmas,axis=0)
+        xigmas = np.mean(Delta_Xigmas,axis=0)
+        xigmas_cov = np.cov(Delta_Xigmas.T)
     
 
     return sigmas, sigmas_cov, xigmas, xigmas_cov
