@@ -15,7 +15,7 @@ def ln_gaussian_likelihood_maker(data,model,hartlap=1):
         vec_row = vec.reshape(1,N)
         vec_col = vec.reshape(N,1)
 
-        lndetcov = np.log(np.linalg.det(covariance))
+        lndetcov = np.log(np.linalg.det(covariance))#data['Delta_sigma_cov_stick12']/1e30)) +(len(radii)+4)*np.log(1e30)
 
         result = -(np.dot(vec_row,np.dot(inv_cov_estim,vec_col)))-N*1.837877-abs(lndetcov)#1.837877 = ln(2pi)
 
