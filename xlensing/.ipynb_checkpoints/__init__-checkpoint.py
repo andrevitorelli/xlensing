@@ -1,2 +1,2 @@
-__version__ ='v0.0'
-from . import data, utils, fitting, cosmo, model
+__version__ ='v0.2'
+from . import data, utils, fitting, cosmo, model, testing
