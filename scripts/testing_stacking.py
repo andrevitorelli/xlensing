@@ -33,12 +33,13 @@ C200true = 3.5
 Zcluster = 0.3
 RAcluster = 0.0 #radians 
 DECluster = 0.0 #radians
-Ngals = 1e5
+Ngals = 1e6
 
 mratio_list = []
 cratio_list = []
+timestamp = time.time()
 if __name__ == '__main__':
-  for i in tqdm.tqdm(range(200)):
+  for i in tqdm.tqdm(range(400)):
 
     E1gals, E2gals, RAgals, DECgals, Zgals = xlensing.testing.gen_gal(Ngals=Ngals,Zcluster=Zcluster)
 
@@ -171,7 +172,6 @@ if __name__ == '__main__':
     print(c_ratio)
     mratio_list.append(m_ratio)
     cratio_list.append(c_ratio)
-  
-  np.save(f"mratio_lower_snr{time.time()}.npy",np.array(mratio_list))
-  np.save(f"cratio_lower_snr{time.time()}.npy",np.array(cratio_list))
+    np.save(f"mratio_higher_snr{timestamp}.npy",np.array(mratio_list))
+    np.save(f"cratio_higher_snr{timestamp}.npy",np.array(cratio_list))
 
