@@ -28,8 +28,7 @@ from functools import partial
 
 warnings.filterwarnings('ignore')
 
-M200true = 2e14
-C200true = 3.5
+
 Zcluster = 0.3
 RAcluster = 0.0 #radians 
 DECluster = 0.0 #radians
@@ -37,9 +36,15 @@ Ngals = 1e6
 
 mratio_list = []
 cratio_list = []
+mlist = []
+clist = []
 timestamp = time.time()
 if __name__ == '__main__':
   for i in tqdm.tqdm(range(400)):
+    logM200 = np.random.uniform(13.5,14.5)
+    M200true = 10**logM200
+    C200true = xlensing.model.c_DuttonMaccio(Zcluster,M200true)*(np.random.normal(0,0.001)+1)
+    print(f"Testing with mass: {M200true: .2e} and concentration {C200true: .2f}. ")
 
     E1gals, E2gals, RAgals, DECgals, Zgals = xlensing.testing.gen_gal(Ngals=Ngals,Zcluster=Zcluster)
 
@@ -172,6 +177,10 @@ if __name__ == '__main__':
     print(c_ratio)
     mratio_list.append(m_ratio)
     cratio_list.append(c_ratio)
-    np.save(f"mratio_higher_snr{timestamp}.npy",np.array(mratio_list))
-    np.save(f"cratio_higher_snr{timestamp}.npy",np.array(cratio_list))
+    mlist.append(M200true)
+    clist.append(C200true)
+    np.save(f"mtrue_mass_range_higher_snr{timestamp}.npy",np.array(mlist))
+    np.save(f"ctrue_mass_range_higher_snr{timestamp}.npy",np.array(clist))
+    np.save(f"mratio_mass_range_higher_snr{timestamp}.npy",np.array(mratio_list))
+    np.save(f"cratio_mass_range_higher_snr{timestamp}.npy",np.array(cratio_list))
 
