@@ -32,7 +32,7 @@ warnings.filterwarnings('ignore')
 Zcluster = 0.3
 RAcluster = 0.0 #radians 
 DECluster = 0.0 #radians
-Ngals = 1e6
+Ngals = 1e5
 
 mratio_list = []
 cratio_list = []
@@ -59,7 +59,6 @@ if __name__ == '__main__':
     Mgals = -np.random.exponential(0.03,size=int(Ngals))*0
 
     galaxy_catalog = Table([RAgals,DECgals,Zgals,e1gals,e2gals, Wgals,Mgals],names=['RA','DEC','ZPHOT','E1','E2','WEIGHT','M'])
-
 
     sr_RA = np.array(galaxy_catalog['RA'])
     sr_DEC= np.array(galaxy_catalog['DEC'])
@@ -98,13 +97,11 @@ if __name__ == '__main__':
 
     stick = [clusters]
 
-
     radii = np.logspace(-0.8,0.8,8)
     N = len(radii)
     bins_lims = np.logspace(np.log10(radii[0])+(np.log10(radii[0])-np.log10(radii[1]))/2,
                             np.log10(radii[N-1])-(np.log10(radii[0])-np.log10(radii[1]))/2,N+1)
     bins_lims = np.array([[bins_lims[i],bins_lims[i+1]] for i in range(N)])
-
 
     Nboot=200
     stick_results = []
@@ -179,8 +176,8 @@ if __name__ == '__main__':
     cratio_list.append(c_ratio)
     mlist.append(M200true)
     clist.append(C200true)
-    np.save(f"mtrue_mass_range_higher_snr{timestamp}.npy",np.array(mlist))
-    np.save(f"ctrue_mass_range_higher_snr{timestamp}.npy",np.array(clist))
-    np.save(f"mratio_mass_range_higher_snr{timestamp}.npy",np.array(mratio_list))
-    np.save(f"cratio_mass_range_higher_snr{timestamp}.npy",np.array(cratio_list))
+    np.save(f"mtrue_mass_range_lower_snr{timestamp}.npy",np.array(mlist))
+    np.save(f"ctrue_mass_range_lower_snr{timestamp}.npy",np.array(clist))
+    np.save(f"mratio_mass_range_lower_snr{timestamp}.npy",np.array(mratio_list))
+    np.save(f"cratio_mass_range_lower_snr{timestamp}.npy",np.array(cratio_list))
 
