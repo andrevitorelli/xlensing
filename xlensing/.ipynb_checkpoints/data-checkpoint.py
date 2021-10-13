@@ -172,6 +172,7 @@ def stack(cluster_backgrounds,bin_limits,Nboot=200):
     
     Nboot = the number of resamplings desired
     
+    TODO: invert resampling bin structure in 1-cluster stacks
     """
     
     print("Total galaxies available per bin:")
@@ -195,8 +196,8 @@ def stack(cluster_backgrounds,bin_limits,Nboot=200):
             bin_lower_cut  = bin_upper_cut[:,bin_upper_cut[4]>bins[0]]
             radial_background.append(bin_lower_cut)
             
-        Delta_Sigmas = np.empty((Nboot,Nbins)) #sigma_crit * et (E-mode signal)
-        Delta_Xigmas = np.empty((Nboot,Nbins)) #sigma_crit * ex (B-mode signal)
+        Delta_Sigmas = np.empty([Nboot,Nbins]) #sigma_crit * et (E-mode signal)
+        Delta_Xigmas = np.empty([Nboot,Nbins]) #sigma_crit * ex (B-mode signal)
        
         #bootstrap
         for sampleNo in range(Nboot):
@@ -231,8 +232,8 @@ def stack(cluster_backgrounds,bin_limits,Nboot=200):
         #sorts Nboot selections of the clusters all at once
         resample=np.random.randint(0,len(cluster_backgrounds),(Nboot,len(cluster_backgrounds)))
         
-        Delta_Sigmas = np.empty((Nbins,Nboot)) #E-mode signal (tang. shear)
-        Delta_Xigmas = np.empty((Nbins,Nboot)) #B-mode signal (cross shear)
+        Delta_Sigmas = np.empty([Nboot,Nbins]) #E-mode signal (tang. shear)
+        Delta_Xigmas = np.empty([Nboot,Nbins]) #B-mode signal (cross shear)
         
         #bootstrap
         for sampleNo in range(len(resample)):
@@ -250,15 +251,16 @@ def stack(cluster_backgrounds,bin_limits,Nboot=200):
                 #average multiplicative bias correction
                 One_plus_K = np.average(bin_cut[5,:]+1,weights= bin_cut[3,:]/(bin_cut[0,:]**2))
 
-                Delta_Sigmas[radius,sampleNo] = Sigma/One_plus_K
-                Delta_Xigmas[radius,sampleNo] = Xigma/One_plus_K
+                Delta_Sigmas[sampleNo, radius] = Sigma/One_plus_K
+                Delta_Xigmas[sampleNo, radius] = Xigma/One_plus_K
 
             del stake
             
-        #gather results
+        ##gather results
+        #print(Delta_Sigmas)
         sigmas = np.mean(Delta_Sigmas,axis=0)
         xigmas = np.mean(Delta_Xigmas,axis=0)
-        
+        #print(sigmas)
         sigmas_cov = np.cov(Delta_Sigmas.T)
         xigmas_cov = np.cov(Delta_Xigmas.T)
     
