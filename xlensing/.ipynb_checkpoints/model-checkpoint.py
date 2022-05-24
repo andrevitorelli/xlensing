@@ -126,12 +126,10 @@ sig802 = sigma8()**2
 #critical density at redshift zero
 rhoc0 = cosmo.rhocz(0)
 
-
 #Normalised bias
 def Bias(z,Mvir):
     B  = rhoc0*Tinker_bias(peak_nu(z,Mvir))*sig802*cosmo.OmegaM*D(cosmo.scale_factor(z))**2
     return B
-
 
 #Implement Johnston 2007 2ht
 w_johnston_val = Table.read(resources+"/W_johnston.fits") #precalculated for fast interpolation function.
