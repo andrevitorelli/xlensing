@@ -95,7 +95,7 @@ def annular_area(rad1,rad2):
     """Calculates the solid angle of a annulus"""
     return cap_area(rad2)-cap_area(rad1)
 
-def cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
+def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     """
     Gets the lensing signal given a cluster and a source galaxy catalogue within a 
     radius from which we will get galaxies to measure tangential and cross 
@@ -154,7 +154,84 @@ def cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
               'Count': len(background_region)}
     
     return result
+  
+def stacked_signal(cluster_backgrounds,bin_limits,signal,Nboot=200):
+    """
+    cluster_backgrounds = a list of ndarrays, each containing 
+    bin_limits = an array containing the bin lower and upper bounds
+    signals = function that calculates one realization
+    Nboot = the number of resamplings desired
+    
+    """
+    
+    print("Total galaxies available per bin:")
+    sources_radii = np.hstack([cluster_backgrounds[i][4] for i in range(len(cluster_backgrounds))])
+    print([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits ] )
+    print()
+    
+    Nbins=len(bin_limits)
 
+    #sorts Nboot selections of the clusters all at once
+    resample=np.random.randint(0,len(cluster_backgrounds),(Nboot,len(cluster_backgrounds)))
+
+    Delta_Sigmas = np.empty((Nboot,Nbins)) #E-mode signal (tang. shear)
+    Delta_Xigmas = np.empty((Nboot,Nbins)) #B-mode signal (cross shear)
+
+      #bootstrap
+    for sampleNo in range(len(resample)):
+      stake = np.hstack([cluster_backgrounds[i] for i in resample[sampleNo]])
+      sigmas, xigmas = signal(stake,bin_limits)
+      Delta_Sigmas[sampleNo] = sigmas
+      Delta_Xigmas[sampleNo] = xigmas
+
+    #gather results
+    sigmas = np.mean(Delta_Sigmas,axis=0)
+    xigmas = np.mean(Delta_Xigmas,axis=0)
+
+    sigmas_cov = np.cov(Delta_Sigmas.T)
+    xigmas_cov = np.cov(Delta_Xigmas.T)
+    
+
+    return sigmas, sigmas_cov, xigmas, xigmas_cov  
+
+########signal for CFHT-LensFit type 
+def CFHTSignal(stake,bin_limits):
+  """
+  cluster_backgrounds = a list of ndarrays, each containing cluster background galaxies for lensing. 
+  
+  They should contain: 
+  - (0) Sigma_crit: the critical density calculated from the cluster and galaxy redshifts
+  - (1) e_t: the tangential component of the shear
+  - (2) e_x: the cross component of the shear
+  - (3) W: the weight of the ellipticity measurement
+  - (4) R: the angular diameter radius in Mpc/h between the cluster centre and the background
+        galaxy position.
+  - (5) M: the estimation of multiplicative biases 
+  """
+
+    
+  Nbins=len(bins_lims)
+  Delta_Sigmas = np.empty(Nbins) #E-mode signal (tang. shear)
+  Delta_Xigmas = np.empty(Nbins) #B-mode signal (cross shear)
+
+  for radius in range(Nbins):
+    #populate radial bins
+    bin_upper_cut = stake[:,stake[4,:]<bin_limits[radius,1]]
+    bin_cut = bin_upper_cut[:,bin_upper_cut[4,:]>bin_limits[radius,0]]
+
+    #sigma = average sigma_crit * shear * weight=(W/sigma_crit^2)
+    Sigma = np.average(bin_cut[0,:]*bin_cut[1,:],weights= bin_cut[3,:]/(bin_cut[0,:]**2))
+    Xigma = np.average(bin_cut[0,:]*bin_cut[2,:],weights= bin_cut[3,:]/(bin_cut[0,:]**2))
+
+    #average multiplicative bias correction
+    One_plus_K = np.average(bin_cut[5,:]+1,weights= bin_cut[3,:]/(bin_cut[0,:]**2))
+
+    Delta_Sigmas[radius] = Sigma/One_plus_K
+    Delta_Xigmas[radius] = Xigma/One_plus_K
+
+  return Delta_Sigmas, Delta_Xigmas
+  
+#############################################################################################LEGACY
 def stack(cluster_backgrounds,bin_limits,Nboot=200):
     """
     cluster_backgrounds = a list of ndarrays, each containing 
