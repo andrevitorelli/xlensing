@@ -95,7 +95,7 @@ def annular_area(rad1,rad2):
     """Calculates the solid angle of a annulus"""
     return cap_area(rad2)-cap_area(rad1)
 
-def cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
+def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     """
     Gets the lensing signal given a cluster and a source galaxy catalogue within a 
     radius from which we will get galaxies to measure tangential and cross 
@@ -151,6 +151,79 @@ def cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
               'Polar Angle': theta,
               'Weights': background_region[:,5],
               'Mult. Bias': background_region[:,6],
+              'Count': len(background_region)}
+    
+    return result
+
+def tangential_response(R11, R12, R21, R22,phi):
+  Rt = R11*cos(2*phi)**2 + R22*sin(2*phi) + (R12+R21)*sin(2*phi)*cos(2*phi)
+  return Rt
+  
+def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
+    """
+    Gets the lensing signal given a cluster and a source galaxy catalogue within a 
+    radius from which we will get galaxies to measure tangential and cross 
+    ellipticities, and the critical lensing density.
+    
+    cluster = a 3-tuple with cluster RA, DEC (in radians) and redshift.
+        
+    sources = a 10-tuple with arrays of:
+    
+    - 0: RA and
+    - 1: DEC of galaxy in radians
+    - 2 galaxy redshift
+    - 3: E1 and
+    - 4: E2 (standard coordinate system RA = -e1)
+    - 5: measurement weight
+    - 6: R11,
+    - 7: R12,
+    - 8: R21, and
+    - 9: R22, the response matrix
+    """
+    
+    
+    #convert input to np arrays
+    cluster_RA, cluster_DEC, cluster_z = cluster
+    cluster = np.array([cluster_RA,cluster_DEC,cluster_z]).T
+
+    source_RA, source_DEC, source_z, source_E1, source_E2, source_W, source_M = sources
+    source = np.array([source_RA,source_DEC,source_z,source_E1,source_E2,source_W,source_M]).T
+    
+    #angular diameters
+    cluster_DA = cosmo.DA(0,cluster_z)
+    angular_radius = radius/cluster_DA
+    
+    #select cluster area
+    region_mask = angular_separation(cluster_RA,cluster_DEC,source[:,0],source[:,1])<  angular_radius
+    region = source[region_mask]
+    
+    #select galaxy backgrounds
+    background_condition = (region[:,2]> 1.1*cluster_z +0.2)   #this is contentious and should be changed
+    background_region = region[background_condition,:]
+
+    #critical lensing density and polar position of sources/clusters
+    sigs = sigmacrit(cluster_z,background_region[:,2])/1e12 #msun/pc^2 is better than msun/mpc^2 for numerical reasons
+    rads, theta = equatorial_to_polar(background_region[:,0],
+                    background_region[:,1],
+                    cluster_RA,
+                    cluster_DEC,sys_angle)
+
+    #polar ellipticities
+    et = -background_region[:,3]*np.cos(2*theta) - background_region[:,4]*np.sin(2*theta)
+    ex = -background_region[:,3]*np.sin(2*theta) + background_region[:,4]*np.cos(2*theta)
+    
+    Rt = tangential_response(background_region[:,6].
+                             background_region[:,7]
+                             background_region[:,8]
+                             background_region[:,9], theta)
+    
+    result = {'Critical Density': sigs,
+              'Tangential Shear': et,
+              'Cross Shear': ex,
+              'Radial Distance' : rads*cluster_DA,
+              'Polar Angle': theta,
+              'Weights': background_region[:,5],
+              'Mult. Bias': 1.-Rt,
               'Count': len(background_region)}
     
     return result
