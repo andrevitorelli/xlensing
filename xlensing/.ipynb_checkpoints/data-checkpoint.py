@@ -114,30 +114,27 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     
     
     #convert input to np arrays
-    cluster_RA, cluster_DEC, cluster_z = cluster
-    cluster = np.array([cluster_RA,cluster_DEC,cluster_z]).T
-
-    source_RA, source_DEC, source_z, source_E1, source_E2, source_W, source_M = sources
-    source = np.array([source_RA,source_DEC,source_z,source_E1,source_E2,source_W,source_M]).T
+    cluster = np.array(list(cluster))
+    source = np.array(list(sources)).T
     
     #angular diameters
-    cluster_DA = cosmo.DA(0,cluster_z)
+    cluster_DA = cosmo.DA(0,cluster[2])
     angular_radius = radius/cluster_DA
     
     #select cluster area
-    region_mask = angular_separation(cluster_RA,cluster_DEC,source[:,0],source[:,1])<  angular_radius
+    region_mask = angular_separation(cluster[0],cluster[1],source[:,0],source[:,1])<  angular_radius
     region = source[region_mask]
     
     #select galaxy backgrounds
-    background_condition = (region[:,2]> 1.1*cluster_z +0.2)   #this is contentious and should be changed
+    background_condition = (region[:,2]> 1.1*cluster[2] +0.2)   #this is contentious and should be changed
     background_region = region[background_condition,:]
 
     #critical lensing density and polar position of sources/clusters
-    sigs = sigmacrit(cluster_z,background_region[:,2])/1e12 #msun/pc^2 is better than msun/mpc^2 for numerical reasons
+    sigs = sigmacrit(cluster[2],background_region[:,2])/1e12 #msun/pc^2 is better than msun/mpc^2 for numerical reasons
     rads, theta = equatorial_to_polar(background_region[:,0],
                     background_region[:,1],
-                    cluster_RA,
-                    cluster_DEC,sys_angle)
+                    cluster[0],
+                    cluster[1],sys_angle)
 
     #polar ellipticities
     et = -background_region[:,3]*np.cos(2*theta) - background_region[:,4]*np.sin(2*theta)
@@ -156,9 +153,9 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     return result
 
 def tangential_response(R11, R12, R21, R22,phi):
-  Rt = R11*cos(2*phi)**2 + R22*sin(2*phi) + (R12+R21)*sin(2*phi)*cos(2*phi)
+  Rt = R11*np.cos(2*phi)**2 + R22*np.sin(2*phi)**2 + (R12+R21)*np.sin(2*phi)*np.cos(2*phi)
   return Rt
-  
+
 def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     """
     Gets the lensing signal given a cluster and a source galaxy catalogue within a 
@@ -183,38 +180,35 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     
     
     #convert input to np arrays
-    cluster_RA, cluster_DEC, cluster_z = cluster
-    cluster = np.array([cluster_RA,cluster_DEC,cluster_z]).T
-
-    source_RA, source_DEC, source_z, source_E1, source_E2, source_W, source_M = sources
-    source = np.array([source_RA,source_DEC,source_z,source_E1,source_E2,source_W,source_M]).T
+    cluster = np.array(list(cluster))
+    source = np.array(list(sources)).T
     
     #angular diameters
-    cluster_DA = cosmo.DA(0,cluster_z)
+    cluster_DA = cosmo.DA(0,cluster[2])
     angular_radius = radius/cluster_DA
     
     #select cluster area
-    region_mask = angular_separation(cluster_RA,cluster_DEC,source[:,0],source[:,1])<  angular_radius
+    region_mask = angular_separation(cluster[0],cluster[1],source[:,0],source[:,1])<  angular_radius
     region = source[region_mask]
     
     #select galaxy backgrounds
-    background_condition = (region[:,2]> 1.1*cluster_z +0.2)   #this is contentious and should be changed
+    background_condition = (region[:,2]> 1.1*cluster[2] +0.2)   #this is contentious and should be changed
     background_region = region[background_condition,:]
 
     #critical lensing density and polar position of sources/clusters
-    sigs = sigmacrit(cluster_z,background_region[:,2])/1e12 #msun/pc^2 is better than msun/mpc^2 for numerical reasons
+    sigs = sigmacrit(cluster[2],background_region[:,2])/1e12 #msun/pc^2 is better than msun/mpc^2 for numerical reasons
     rads, theta = equatorial_to_polar(background_region[:,0],
                     background_region[:,1],
-                    cluster_RA,
-                    cluster_DEC,sys_angle)
+                    cluster[0],
+                    cluster[1],sys_angle)
 
     #polar ellipticities
     et = -background_region[:,3]*np.cos(2*theta) - background_region[:,4]*np.sin(2*theta)
     ex = -background_region[:,3]*np.sin(2*theta) + background_region[:,4]*np.cos(2*theta)
     
-    Rt = tangential_response(background_region[:,6].
-                             background_region[:,7]
-                             background_region[:,8]
+    Rt = tangential_response(background_region[:,6],
+                             background_region[:,7],
+                             background_region[:,8],
                              background_region[:,9], theta)
     
     result = {'Critical Density': sigs,
@@ -223,16 +217,27 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
               'Radial Distance' : rads*cluster_DA,
               'Polar Angle': theta,
               'Weights': background_region[:,5],
-              'Mult. Bias': 1.-Rt,
+              'Mult. Bias': Rt,
+              
               'Count': len(background_region)}
     
-    return result
+    return result#, background_region
   
 def stacked_signal(cluster_backgrounds,bin_limits,signal,Nboot=200):
     """
     cluster_backgrounds = a list of ndarrays, each containing 
+    cluster background galaxies for lensing. They should contain: 
+    - (0) Sigma_crit: the critical density calculated from the cluster and galaxy redshifts
+    - (1) e_t: the tangential component of the shear
+    - (2) e_x: the cross component of the shear
+    - (3) W: the weight of the ellipticity measurement
+    - (4) R: the angular diameter radius in Mpc/h between the cluster centre and the background
+          galaxy position.
+    - (5) M: the estimation of multiplicative biases 
+
+    
     bin_limits = an array containing the bin lower and upper bounds
-    signals = function that calculates one realization
+    
     Nboot = the number of resamplings desired
     
     """
@@ -263,9 +268,8 @@ def stacked_signal(cluster_backgrounds,bin_limits,signal,Nboot=200):
 
     sigmas_cov = np.cov(Delta_Sigmas.T)
     xigmas_cov = np.cov(Delta_Xigmas.T)
-    
 
-    return sigmas, sigmas_cov, xigmas, xigmas_cov  
+    return sigmas, sigmas_cov, xigmas, xigmas_cov
 
 ########signal for CFHT-LensFit type 
 def CFHTSignal(stake,bin_limits):
@@ -283,7 +287,7 @@ def CFHTSignal(stake,bin_limits):
   """
 
     
-  Nbins=len(bins_lims)
+  Nbins=len(bin_limits)
   Delta_Sigmas = np.empty(Nbins) #E-mode signal (tang. shear)
   Delta_Xigmas = np.empty(Nbins) #B-mode signal (cross shear)
 
@@ -303,7 +307,9 @@ def CFHTSignal(stake,bin_limits):
     Delta_Xigmas[radius] = Xigma/One_plus_K
 
   return Delta_Sigmas, Delta_Xigmas
-  
+
+
+
 #############################################################################################LEGACY
 def stack(cluster_backgrounds,bin_limits,Nboot=200):
     """
