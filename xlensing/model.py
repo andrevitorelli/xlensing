@@ -20,7 +20,11 @@ from pathlib import Path
 resources = str(Path(__file__).parent)
 
 
-NFW_delta_c = lambda conc: (cosmo.cluster_overdensity/3.)*((conc**3)/(np.log(1.+conc)-conc/(1.+conc)))
+def NFW_delta_c(conc):
+  if conc >0: 
+    return (cosmo.cluster_overdensity/3.)*((conc**3)/(np.log(1.+conc)-conc/(1.+conc)))
+
+  return 1e-12
 
 def r_vir_c(z,M):
     dc = cosmo.cluster_overdensity #\Delta (standard = 200)
