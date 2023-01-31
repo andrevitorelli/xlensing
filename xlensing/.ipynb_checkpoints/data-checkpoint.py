@@ -6,7 +6,7 @@ sigmacrit = lambda z_d, z_s: ((cosmo.lightspeed**2.)/(4*np.pi*cosmo.gravity))*co
 
 
 #Angular Separation between two points in the sky
-def angular_separation(lon1, lat1, lon2, lat2):
+def equatorial_to_polar(lon1, lat1, lon2, lat2):
     """ 
     Args
     ----------
@@ -16,8 +16,11 @@ def angular_separation(lon1, lat1, lon2, lat2):
 
     Returns
     -------
-    angular separation : Quantity or float
-        Type depends on input; Quantity in angular units, or float in radians
+    Sep :  float
+      Separation in radians
+    theta: float
+      Azimuth respective to meridian
+      
 
     Notes
     -----
@@ -41,65 +44,12 @@ def angular_separation(lon1, lat1, lon2, lat2):
     num2 = clat1 * slat2 - slat1 * clat2 * cdlon
     denominator = slat1 * slat2 + clat1 * clat2 * cdlon
     sep = np.arctan2(np.sqrt(num1 ** 2 + num2 ** 2), denominator)
-    return sep
-
-def equatorial_to_polar(RA,Dec,RA_center,Dec_center,sys_angle=np.pi/2): 
-    """
-    Converts from an equatorial system of coordinates to a
-    polar system containing an azimuthal angle and a separation from
-    a reference point.    
     
-    Args
-    ----
-      RA, Dec: arrays of obj positions in radians
-      RA_center, Dec_center: centre of the coordinate system
-      sys_angle: azimuthal angle of the coordinate system
-      
-    Returns
-    -------
-      tuple with angular separation and the azimuthal angle
-       
-    """
-    
-    
-    #center all points in RA
-    RAprime = RA-RA_center
-    RA_center=0
-    #convert to positive values of RA
-    negative = (RAprime<0)
-    RAprime[negative] = 2*np.pi+RAprime[negative]
-    #define wich quadrant is each point
-    Qd1 = (RAprime<np.pi)&(Dec-Dec_center>0)
-    Qd2 = (RAprime<np.pi)&(Dec-Dec_center<0)
-    Qd3 = (RAprime>np.pi)&(Dec-Dec_center<0)
-    Qd4 = (RAprime>np.pi)&(Dec-Dec_center>0)
-    
-    #Calculate the distance between the center and object, and the azimuthal angle
-    Sep = angular_separation(RAprime, Dec, RA_center,Dec_center)
-        
-    #build a triangle to calculate the spherical cosine law
-    x = angular_separation(RA_center,Dec,RA_center,Dec_center)
-    y = angular_separation(RAprime,Dec, RA_center,Dec)
-    
-    #Apply shperical cosine law
-    cosT = (np.cos(y) - np.cos(x)*np.cos(Sep))/(np.sin(x)*np.sin(Sep))
-    #Round cosines that went over because of rounding errors
-    roundinghigh = (cosT >  1)
-    roundinglow  = (cosT < -1)
-    cosT[roundinghigh]=1
-    cosT[roundinglow]=-1
-    uTheta = np.arccos(cosT)
-    #Correct the angle for quadrant (because the above law calculates the acute angle between the "horizontal-RA" direction
-    #and the angular separation great circle between the center and the object
-    Theta= np.zeros(len(uTheta))
-    
-    Theta[Qd1] = uTheta[Qd1]
-    Theta[Qd2] = np.pi-uTheta[Qd2] 
-    Theta[Qd3] = np.pi+uTheta[Qd3]
-    Theta[Qd4] = 2*np.pi-uTheta[Qd4]
-    
-    Theta = Theta+sys_angle
-    return Sep, Theta
+    ###Azimuth formula
+    L = lon2-lon1
+    denominator2 = clat1*slat2/clat2 - slat1*cdlon
+    theta = np.arctan2(sdlon,denominator2)
+    return sep, theta  
     
 def cap_area(radius):
     """Calculates the solid angle of a cap"""
@@ -157,7 +107,7 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     region = source[region_mask]
     
     #select galaxy backgrounds
-    background_condition = (region[:,2]> 1.1*cluster[2] +0.2)   #this is contentious and should be changed
+    background_condition = (region[:,2]> 1.05*cluster[2])   #this is contentious and should be changed
     background_region = region[background_condition,:]
 
     #critical lensing density and polar position of sources/clusters
@@ -165,8 +115,8 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     rads, theta = equatorial_to_polar(background_region[:,0],
                     background_region[:,1],
                     cluster[0],
-                    cluster[1],sys_angle)
-
+                    cluster[1])
+    theta += sys_angle
     #polar ellipticities
     et = -background_region[:,3]*np.cos(2*theta) - background_region[:,4]*np.sin(2*theta)
     ex = -background_region[:,3]*np.sin(2*theta) + background_region[:,4]*np.cos(2*theta)
@@ -250,7 +200,7 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     angular_radius = radius/cluster_DA
     
     #select cluster area
-    region_mask = angular_separation(cluster[0],cluster[1],source[:,0],source[:,1])<  angular_radius
+    region_mask = equatorial_to_polar(cluster[0],cluster[1],source[:,0],source[:,1])[0]<  angular_radius
     region = source[region_mask]
     
     #select galaxy backgrounds
@@ -262,8 +212,8 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     rads, theta = equatorial_to_polar(background_region[:,0],
                     background_region[:,1],
                     cluster[0],
-                    cluster[1],sys_angle)
-
+                    cluster[1])
+    theta += sys_angle
     #polar ellipticities
     et = -background_region[:,3]*np.cos(2*theta) - background_region[:,4]*np.sin(2*theta)
     ex = -background_region[:,3]*np.sin(2*theta) + background_region[:,4]*np.cos(2*theta)
@@ -284,7 +234,7 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     
     return result#, background_region
   
-def stacked_signal(cluster_backgrounds,bin_limits,signal,Nboot=200):
+def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
     """
     cluster_backgrounds = a list of ndarrays, each containing 
     cluster background galaxies for lensing. They should contain: 
@@ -319,6 +269,7 @@ def stacked_signal(cluster_backgrounds,bin_limits,signal,Nboot=200):
       #bootstrap
     for sampleNo in range(len(resample)):
       stake = np.hstack([cluster_backgrounds[i] for i in resample[sampleNo]])
+      
       sigmas, xigmas = signal(stake,bin_limits)
       Delta_Sigmas[sampleNo] = sigmas
       Delta_Xigmas[sampleNo] = xigmas

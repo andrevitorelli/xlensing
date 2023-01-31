@@ -193,13 +193,13 @@ def NFW_shear(M200, C200, Z, PCC, SIGMA, M0, radii):
 
     #shear due to miscentered galaxy systems
     try:
-        signal_NFW_miscc  = fact*Delta_Sigma_NFW_off_x(X, xi).reshape(radii.shape)/1.e12
+        signal_NFW_miscc  = fact*Delta_Sigma_NFW_off_x(X, xi).reshape(radii.shape)/1e12
     except:
         signal_NFW_miscc = float('NaN')
         
 
     #shear due to the large scale structure of the universe
-    signal_2ht = Delta_Sigma_l(Z, radii)*Bias(Z, M200)/1.e12
+    signal_2ht = Delta_Sigma_l(Z, radii)*Bias(Z, M200)/1e12
 
     signal_total = signal_BCG + PCC*signal_NFW_centre + (1 - PCC)*signal_NFW_miscc + signal_2ht
     
