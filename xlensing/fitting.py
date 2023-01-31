@@ -4,10 +4,10 @@ def ln_gaussian_likelihood_maker(data,model,hartlap=1):
     
     def ln_gaussian_like(theta):
         signal, covariance = data
+        
         N = len(signal)
 
         model_eval = model(theta)#model is  m =  f(theta,x) with x previously set by functools.partial
-
 
         inv_cov_estim = hartlap*np.linalg.inv(covariance)
         vec =  signal - model_eval
