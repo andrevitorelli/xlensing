@@ -1,9 +1,7 @@
 import numpy as np
 from . import cosmo
 
-
 sigmacrit = lambda z_d, z_s: ((cosmo.lightspeed**2.)/(4*np.pi*cosmo.gravity))*cosmo.DA(0,z_s)/(cosmo.DA(0,z_d)*cosmo.DA(z_d,z_s))
-
 
 #Angular Separation between two points in the sky
 def equatorial_to_polar(lon1, lat1, lon2, lat2):
@@ -19,8 +17,7 @@ def equatorial_to_polar(lon1, lat1, lon2, lat2):
     Sep :  float
       Separation in radians
     theta: float
-      Azimuth respective to meridian
-      
+      Azimuth respective to meridian      
 
     Notes
     -----
@@ -290,8 +287,7 @@ def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     print("Total galaxies available per bin:")
     sources_radii = np.hstack([cluster_backgrounds[i][4] for i in range(len(cluster_backgrounds))])
     print([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits ] )
-    print()
-    
+    print()    
     
     Nbins=len(bin_limits)
     
@@ -327,7 +323,6 @@ def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
 
             Delta_Sigmas[sampleNo,radius] = Sigma/One_plus_K
             Delta_Xigmas[sampleNo,radius] = Xigma/One_plus_K
-
 
     Delta_Sigmas = np.array(Delta_Sigmas)
     Delta_Xigmas = np.array(Delta_Xigmas)
