@@ -216,7 +216,44 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
               'Count': len(background_region)}
     
     return result#, background_region
+
+def signal(stake,bin_limits):
+  """
+  cluster_backgrounds = a list of ndarrays, each containing cluster background galaxies for lensing. 
   
+  They should contain: 
+  - (0) Sigma_crit: the critical density calculated from the cluster and galaxy redshifts
+  - (1) e_t: the tangential component of the shear
+  - (2) e_x: the cross component of the shear
+  - (3) W: the weight of the ellipticity measurement
+  - (4) R: the angular diameter radius in Mpc/h between the cluster centre and the background
+        galaxy position.
+  - (5) M: the estimation of multiplicative biases 
+  """
+
+
+  Nbins=len(bin_limits)
+  Delta_Sigmas = np.empty(Nbins) #E-mode signal (tang. shear)
+  Delta_Xigmas = np.empty(Nbins) #B-mode signal (cross shear)
+
+  for radius in range(Nbins):
+    #populate radial bins
+    bin_upper_cut = stake[:,stake[4,:]<bin_limits[radius,1]]
+    bin_cut = bin_upper_cut[:,bin_upper_cut[4,:]>bin_limits[radius,0]]
+
+    #sigma = average sigma_crit * shear * weight=(W/sigma_crit^2)
+    Sigma = np.average(bin_cut[0,:]*bin_cut[1,:],weights= bin_cut[3,:]/(bin_cut[0,:]**2))
+    Xigma = np.average(bin_cut[0,:]*bin_cut[2,:],weights= bin_cut[3,:]/(bin_cut[0,:]**2))
+
+    #average multiplicative bias correction
+    One_plus_K = np.average(bin_cut[5,:]+1,weights= bin_cut[3,:]/(bin_cut[0,:]**2))
+
+    Delta_Sigmas[radius] = Sigma/One_plus_K
+    Delta_Xigmas[radius] = Xigma/One_plus_K
+
+  return Delta_Sigmas, Delta_Xigmas
+
+
 def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
     """
     cluster_backgrounds = a list of ndarrays, each containing 
