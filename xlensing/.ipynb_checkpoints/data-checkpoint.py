@@ -1,9 +1,7 @@
 import numpy as np
 from . import cosmo
 
-
 sigmacrit = lambda z_d, z_s: ((cosmo.lightspeed**2.)/(4*np.pi*cosmo.gravity))*cosmo.DA(0,z_s)/(cosmo.DA(0,z_d)*cosmo.DA(z_d,z_s))
-
 
 #Angular Separation between two points in the sky
 def equatorial_to_polar(lon1, lat1, lon2, lat2):
@@ -19,13 +17,13 @@ def equatorial_to_polar(lon1, lat1, lon2, lat2):
     Sep :  float
       Separation in radians
     theta: float
-      Azimuth respective to meridian
-      
+      Azimuth respective to meridian      
 
     Notes
     -----
     
-    This function was taken directly from astropy to use as a pure function.
+    The separation part of this fuction was copied directly from astropy to use as a pure function.
+    The azimuth part is just a simple implementation of the azimuth formula.
     
     The angular separation is calculated using the Vincenty formula [1]_,
     which is slightly more complex and computationally expensive than
@@ -61,7 +59,7 @@ def annular_area(rad1,rad2):
 
 def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     """
-    Gets the lensing signal given a cluster and a source galaxy catalogue within a 
+    Gets the lensing signal given a cluster and a lensfit source galaxy catalogue within a 
     radius from which we will get galaxies to measure tangential and cross 
     ellipticities, and the critical lensing density.
     
@@ -91,8 +89,7 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
       - Weights: the Weights just as from the input #TODO calculate weights here if needed
       - Mult Bias: the multiplicative bias from above
       
-    """
-    
+    """    
     
     #convert input to np arrays
     cluster = np.array(list(cluster))
@@ -143,23 +140,12 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     radius from which we will get galaxies to measure tangential and cross 
     ellipticities, and the critical lensing density.
     
-    cluster = a 3-tuple with cluster RA, DEC (in radians) and redshift.
-        
-    sources = a 10-tuple with arrays of:
-    
-
-    
-  
-    Gets the lensing signal given a cluster and a source galaxy catalogue within a 
-    radius from which we will get galaxies to measure tangential and cross 
-    ellipticities, and the critical lensing density.
-    
     Args:
     ----
     
-      cluster : a 3-tuple with cluster RA, DEC (in radians) and redshift.
+    cluster = a 3-tuple with cluster RA, DEC (in radians) and redshift.
         
-      sources : a 7-tuple with:
+    sources = a 10-tuple with arrays of:
 
     - 0: RA and
     - 1: DEC of galaxy in radians
@@ -186,10 +172,7 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
       - Mult Bias: the multiplicative bias from Rt - 1  (N values)
       - count: N   
     
-    """
-    
-    
-    
+    """   
     
     #convert input to np arrays
     cluster = np.array(list(cluster))
@@ -244,8 +227,7 @@ def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
     - (3) W: the weight of the ellipticity measurement
     - (4) R: the angular diameter radius in Mpc/h between the cluster centre and the background
           galaxy position.
-    - (5) M: the estimation of multiplicative biases 
-
+    - (5) M: the estimation of multiplicative biases
     
     bin_limits = an array containing the bin lower and upper bounds
     
@@ -283,44 +265,6 @@ def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
 
     return sigmas, sigmas_cov, xigmas, xigmas_cov
 
-########signal for CFHT-LensFit type 
-def signal(stake,bin_limits):
-  """
-  cluster_backgrounds = a list of ndarrays, each containing cluster background galaxies for lensing. 
-  
-  They should contain: 
-  - (0) Sigma_crit: the critical density calculated from the cluster and galaxy redshifts
-  - (1) e_t: the tangential component of the shear
-  - (2) e_x: the cross component of the shear
-  - (3) W: the weight of the ellipticity measurement
-  - (4) R: the angular diameter radius in Mpc/h between the cluster centre and the background
-        galaxy position.
-  - (5) M: the estimation of multiplicative biases 
-  """
-
-    
-  Nbins=len(bin_limits)
-  Delta_Sigmas = np.empty(Nbins) #E-mode signal (tang. shear)
-  Delta_Xigmas = np.empty(Nbins) #B-mode signal (cross shear)
-
-  for radius in range(Nbins):
-    #populate radial bins
-    bin_upper_cut = stake[:,stake[4,:]<bin_limits[radius,1]]
-    bin_cut = bin_upper_cut[:,bin_upper_cut[4,:]>bin_limits[radius,0]]
-
-    #sigma = average sigma_crit * shear * weight=(W/sigma_crit^2)
-    Sigma = np.average(bin_cut[0,:]*bin_cut[1,:],weights= bin_cut[3,:]/(bin_cut[0,:]**2))
-    Xigma = np.average(bin_cut[0,:]*bin_cut[2,:],weights= bin_cut[3,:]/(bin_cut[0,:]**2))
-
-    #average multiplicative bias correction
-    One_plus_K = np.average(bin_cut[5,:]+1,weights= bin_cut[3,:]/(bin_cut[0,:]**2))
-
-    Delta_Sigmas[radius] = Sigma/One_plus_K
-    Delta_Xigmas[radius] = Xigma/One_plus_K
-
-  return Delta_Sigmas, Delta_Xigmas
-
-
 def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     """
     cluster_backgrounds = a list of ndarrays, each containing 
@@ -331,8 +275,7 @@ def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     - (3) W: the weight of the ellipticity measurement
     - (4) R: the angular diameter radius in Mpc/h between the cluster centre and the background
           galaxy position.
-    - (5) M: the estimation of multiplicative biases 
-
+    - (5) M: the estimation of multiplicative biases
     
     bin_limits = an array containing the bin lower and upper bounds
     
@@ -344,8 +287,7 @@ def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     print("Total galaxies available per bin:")
     sources_radii = np.hstack([cluster_backgrounds[i][4] for i in range(len(cluster_backgrounds))])
     print([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits ] )
-    print()
-    
+    print()    
     
     Nbins=len(bin_limits)
     
@@ -381,7 +323,6 @@ def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
 
             Delta_Sigmas[sampleNo,radius] = Sigma/One_plus_K
             Delta_Xigmas[sampleNo,radius] = Xigma/One_plus_K
-
 
     Delta_Sigmas = np.array(Delta_Sigmas)
     Delta_Xigmas = np.array(Delta_Xigmas)
