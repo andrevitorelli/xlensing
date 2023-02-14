@@ -224,7 +224,7 @@ def _form(x):
     
 _form = np.vectorize(_form)  
 from scipy.interpolate import interp1d
-xx = np.linspace(1e-2,100,1000000)
+xx = np.linspace(1e-6,1e2,int(1e6))
 _form = interp1d(xx,_form(xx))
 
 def Boost_model(B0,RS,radii):
