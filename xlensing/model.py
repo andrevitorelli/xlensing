@@ -162,8 +162,6 @@ def NFW_shear(M200, C200, Z, PCC, SIGMA, M0, radii):
     A dict containing each part of the signal. See below.
     """
     
-    
-    
     #discard absurd values that may be proposed by MCMC-like algorithms
     if PCC > 1 or PCC < 0:
         PCC = float('NaN')
@@ -205,13 +203,36 @@ def NFW_shear(M200, C200, Z, PCC, SIGMA, M0, radii):
     
     signal = {'Signal': signal_total,
               'BCG Signal': signal_BCG,
-              'NFW Signal': PCC*signal_NFW_centre,
-              'Miscentered Signal': (1-PCC)*signal_NFW_miscc,
+              'NFW Signal': signal_NFW_centre,
+              'Miscentered Signal': signal_NFW_miscc,
               'Two-halo term': signal_2ht,
               'radii': radii
              }
 
     return signal
+  
+def _form(x):
+  if x > 1:
+    sq = np.sqrt(x**2-1)
+    result = np.arctan(sq)/sq
+  if x < 1:
+    sq = np.sqrt(1-x**2)
+    result = np.arctanh(sq)/sq
+  if x == 1:
+    result = 1  
+  return result
+    
+_form = np.vectorize(_form)  
+from scipy.interpolate import interp1d
+xx = np.linspace(1e-2,100,1000000)
+_form = interp1d(xx,_form(xx))
+
+def Boost_model(B0,RS,radii):
+  """From McClintock et al. 2018"""
+  x = radii/RS
+  boosts = 1 + B0 *(1-_form(x))/(x*x-1)
+  return boosts 
+  
 
 def Einasto_shear(Mvir,conc,z,pcc,sigma_off,M0,radii=np.logspace(-1,1,10)):
   return "Not implemented"
@@ -219,6 +240,9 @@ def Einasto_shear(Mvir,conc,z,pcc,sigma_off,M0,radii=np.logspace(-1,1,10)):
 
 def c_DuttonMaccio(z, m,c=1., h=1.):
   """Concentration from c(M) relation in Dutton & Maccio (2014).
+  
+  Code taken from Jes Ford on github.
+  
   Parameters
   ----------
   z : float or array_like
