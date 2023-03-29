@@ -104,7 +104,7 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     region = source[region_mask]
     
     #select galaxy backgrounds
-    background_condition = (region[:,2]> 1.05*cluster[2])   #this is contentious and should be changed
+    background_condition = (region[:,2]> 1.1*cluster[2] +.1)   #this is contentious and should be changed
     background_region = region[background_condition,:]
 
     #critical lensing density and polar position of sources/clusters
@@ -113,7 +113,7 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
                     background_region[:,1],
                     cluster[0],
                     cluster[1])
-    theta += sys_angle
+    #theta += sys_angle
     #polar ellipticities
     et = -background_region[:,3]*np.cos(2*theta) - background_region[:,4]*np.sin(2*theta)
     ex = -background_region[:,3]*np.sin(2*theta) + background_region[:,4]*np.cos(2*theta)
@@ -187,7 +187,7 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     region = source[region_mask]
     
     #select galaxy backgrounds
-    background_condition = (region[:,2]> 1.1*cluster[2] +0.2)   #this is contentious and should be changed
+    background_condition = (region[:,2]> 1.1*cluster[2] +0.1)   #this is contentious and should be changed
     background_region = region[background_condition,:]
 
     #critical lensing density and polar position of sources/clusters
@@ -285,10 +285,11 @@ def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
     Delta_Sigmas = np.empty((Nboot,Nbins)) #E-mode signal (tang. shear)
     Delta_Xigmas = np.empty((Nboot,Nbins)) #B-mode signal (cross shear)
 
-      #bootstrap
-    for sampleNo in range(len(resample)):
+    #bootstrap
+    import tqdm  
+    for sampleNo in tqdm.tqdm(range(len(resample))):
       stake = np.hstack([cluster_backgrounds[i] for i in resample[sampleNo]])
-      
+
       sigmas, xigmas = signal(stake,bin_limits)
       Delta_Sigmas[sampleNo] = sigmas
       Delta_Xigmas[sampleNo] = xigmas

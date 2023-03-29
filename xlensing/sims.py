@@ -1,17 +1,17 @@
+"""Module for simulating/injecting simulated clusters on galaxy catalogs."""
+
 import numpy as np
 import ngmix
-import xlensing
-import
-
+from xlensing.cosmo import DA, cosmology,cluster_overdensity,lightspeed,gravity,OmegaM
 
 def rhoM(z):
   """Mass fraction of the critical mass density of the universe"""
-  mass_density = OmegaM*cosmology.critical_density(z).to('Msun/Mpc**3')
+  mass_density = OmegaM*cosmology.critical_density(z).to('Msun/Mpc**3').value
   return mass_density
 
 def r_vir(zlens, Mlens):
   """Virial radius of an spherical halo of mass Mlens at redshift zlens"""
-  radius = ((3.*Mlens)/(rhoM(zlens).value*4.*np.pi*cluster_overdensity))**(1./3.)
+  radius = ((3.*Mlens)/(rhoM(zlens)*4.*np.pi*cluster_overdensity))**(1./3.)
   return radius
 
 def NFW_delta_c(conc):
@@ -43,10 +43,9 @@ def NFW_tangential_shear(Mlens, conc, zlens, zsource, r):
   #Rescaled radiii
   x = r/rs
   #critical surface density
-  sigcrit = critical_density(zlens,zsource)
-
+  sigcrit = critical_density(zlens,zsource)  
   #total shear caused by NFW profile (Wright, Brainerd, 99)
-  gammat = (rs*NFW_delta_c(conc)*rhoM(zlens).value/sigcrit)*gNFW(x)
+  gammat = (rs*NFW_delta_c(conc)*rhoM(zlens)/sigcrit)*gNFW(x)
   return gammat
 
 NFW_tangential_shear = np.vectorize(NFW_tangential_shear)
@@ -91,7 +90,7 @@ def add_shears(e,eadd):
 
 def make_simple_random_cat(density, width_rad, zrange, shape_noise,seed=1):
   """simple random galaxies with a metacal-catalog like output"""
-  rng = random.RandomState(seed)
+  rng = np.random.RandomState(seed)
 
   width_arcmin = width_rad*3437.75
   Ngals = round(density*width_arcmin**2)

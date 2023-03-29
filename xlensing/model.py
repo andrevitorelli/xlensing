@@ -225,7 +225,7 @@ def _form(x):
 _form = np.vectorize(_form)  
 from scipy.interpolate import interp1d
 xx = np.linspace(1e-6,1e2,int(1e6))
-_form = interp1d(xx,_form(xx))
+_form = interp1d(xx,_form(xx),fill_value='extrapolate')
 
 def Boost_model(B0,RS,radii):
   """From McClintock et al. 2018"""
