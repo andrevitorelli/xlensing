@@ -96,8 +96,7 @@ def sigma_squared(z,R):
     sigma2 = (D(cosmo.scale_factor(z))**2)*integrate.quad(
         lambda k: ((k*k)/(19.7392))*PowerSpec(k)*(Window(k*R))*(Window(k*R)),
         0,
-        np.inf,
-        limit=1,full_output=1)[0]#2*pi**2= 19.7392...
+        np.inf,full_output=1)[0]#2*pi**2= 19.7392...
     return sigma2
 
 #Sigma_8
