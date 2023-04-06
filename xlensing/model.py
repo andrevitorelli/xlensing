@@ -36,10 +36,6 @@ def r_vir_m(z,M):
     result = ((3.*M)/(cosmo.rhoM(z)*4.*np.pi*dc))**(1./3.)
     return result
 
-r_vir = r_vir_m
-rhoz = cosmo.rhoM
-
-
 #call the C library for NFW profile shape
 from ctypes import CDLL, c_double
 lib = CDLL(resources+"/sigma.so")
@@ -55,11 +51,9 @@ P_off.argtypes = [c_double,c_double]
 SigXr.restype = c_double
 SigXr.argtypes = [c_double,c_double,c_double,c_double]
 
-
 #load NFW miscentered profile
 MscRadii = Table.read(resources+"/misc_NFW_radii.fits")
 Profs = Table.read(resources+"/misc_NFW_profiles.fits")
-
 print("Lookup table loaded!")
 Delta_Sigma_NFW_off_x = BSpline(MscRadii['col0'],Profs['col0'],Profs['col1'].T,s=0)
 
@@ -91,7 +85,7 @@ def D1(a):
 def D(a):
     return D1(a)/D1(1.)
 
-#Sigma^2(r,Z)
+#variance
 def sigma_squared(z,R):
     sigma2 = (D(cosmo.scale_factor(z))**2)*integrate.quad(
         lambda k: ((k*k)/(19.7392))*PowerSpec(k)*(Window(k*R))*(Window(k*R)),
@@ -99,11 +93,11 @@ def sigma_squared(z,R):
         np.inf,full_output=1)[0]#2*pi**2= 19.7392...
     return sigma2
 
-#Sigma_8
-def sigma8(*args):
-    return np.sqrt(sigma_squared(0,8))
+#sigma_8
+def sigma8():
+    return np.sqrt(sigma_squared(0.,8.))
 
-#Peak (delta_c/sigma)
+#Peak height (delta_c/sigma)
 def peak_nu (z, Mvir):
     radius = (3*Mvir/(12.56637*cosmo.rhoM(z)))**(1/3) #4*pi = 12.56637...
     niu = cosmo.collapse_density/np.sqrt(sigma_squared(z,radius))
@@ -134,7 +128,7 @@ def Bias(z,Mvir):
     B  = rhoc0*Tinker_bias(peak_nu(z,Mvir))*sig802*cosmo.OmegaM*D(cosmo.scale_factor(z))**2
     return B
 
-#Implement Johnston 2007 2ht
+#Johnston 2007 2ht
 w_johnston_val = Table.read(resources+"/W_johnston.fits") #precalculated for fast interpolation function.
 W_Johnston = USpline(w_johnston_val['col0'],w_johnston_val['col1'],s=0,k=5,ext=1)
 Sigma_l = lambda z,R: (1+z)**2*W_Johnston((1+z)*R)
@@ -144,6 +138,7 @@ Delta_Sigma_l = lambda z,R: 2/(R*R)*integrate.quad(lambda x: x*Sigma_l(z,x),
                                                     limit=1,full_output=1)[0]-Sigma_l(z,R)
 Delta_Sigma_l= np.vectorize(Delta_Sigma_l)
 
+##############profile
 def NFW_shear(M200, C200, Z, PCC, SIGMA, M0, radii):
     """
     NFW MODEL:
@@ -167,10 +162,10 @@ def NFW_shear(M200, C200, Z, PCC, SIGMA, M0, radii):
     
     
     #scale radius
-    rs= r_vir(Z,M200)/C200
+    rs= r_vir_m(Z,M200)/C200
     
     #dimensional factors
-    fact =  2*rs*NFW_delta_c(C200)*rhoz(Z)
+    fact =  2*rs*NFW_delta_c(C200)*cosmo.rhoM(Z)
     
     #adimensional radii
     xi = SIGMA/rs
@@ -183,9 +178,15 @@ def NFW_shear(M200, C200, Z, PCC, SIGMA, M0, radii):
     signal_BCG = signal_BCG/1.e12
     
     #shear due to correctly centered galaxy systems
-    signal_NFW_centre =  np.array([(2*fact/(r*r) )*integrate.quad(lambda x: x*SigX(x, rs),
-                                                                  0,
-                                                                  r,epsabs=0.1,epsrel=0.1,limit=1,full_output=1)[0]  for r in radii])- fact*sigx
+    signal_NFW_centre =  np.array([(2*fact/(r*r))*integrate.quad(
+      lambda x: x*SigX(x, rs),
+      0,
+      r,
+      epsabs=0.1,
+      epsrel=0.1,
+      limit=1,
+      full_output=1
+    )[0]  for r in radii]) - fact*sigx
     signal_NFW_centre =  signal_NFW_centre/1e12
 
     #shear due to miscentered galaxy systems
@@ -237,6 +238,8 @@ def Einasto_shear(Mvir,conc,z,pcc,sigma_off,M0,radii=np.logspace(-1,1,10)):
   return "Not implemented"
 
 
+
+#####mass concentration
 def c_DuttonMaccio(z, m,c=1., h=1.):
   """Concentration from c(M) relation in Dutton & Maccio (2014).
   
@@ -271,7 +274,9 @@ def c_DuttonMaccio(z, m,c=1., h=1.):
 
   concentration = 10.**logc200
   return concentration
-  
+
+
+#####mass obs
 def mass_lambda_McClintock18(Lambda,z):
   #pivots
   log10Lambda0 = np.log10(40)
@@ -284,3 +289,46 @@ def mass_lambda_McClintock18(Lambda,z):
   mlog10M200 = log10M0 + Flambda*(np.log10(Lambda)-log10Lambda0) + Gz*(np.log10(z) - log10z0)
     
   return mlog10M200
+
+
+######mass function
+def Tinker_f(z,sigma):
+  """Tinker et al. 2008"""
+  A0 = 0.186
+  a0 = 1.47
+  b0 = 2.57
+  c0 = 1.19
+  Az = A0*(1+z)**-.14
+  az = a0*(1+z)**-.06
+  log10alpha200 = - (0.75/np.log10(200./75.))**1.2
+  alpha = np.power(10,log10alpha200)
+  bz = b0*(1+z)**alpha
+  cz = c0
+  f = Az*((sigma/bz)**-az + 1.)*np.exp(-cz/sigma**2.)
+  return f
+
+def ln_inv_sigma(z,M):
+  R = r_vir_m(z,M*cosmo.cluster_overdensity)
+  sig = np.sqrt(sigma_squared(z,R))
+  invsig = 1/sig
+  lninvsig = np.log(invsig)
+  return lninvsig
+
+ln_inv_sigma = np.vectorize(ln_inv_sigma)
+
+def dlninvsigmadM(z,M):
+  deltaM =M/1000
+  func = lambda m: ln_inv_sigma(z,m)
+  derivative = (func(M+deltaM) - func(M)) /deltaM
+  return derivative
+
+def Tinker_mass_function(z,M):
+  rhoMz = xlensing.cosmo.rhoM(z)
+  R = xlensing.model.r_vir_m(z,M*cosmo.cluster_overdensity)
+  sigma2 = sigma_squared(z,R)
+  sigma = np.sqrt(sigma2)
+  dndM = Tinker_f(z,sigma) * rhoMz/M200 * dlninvsigmadM(z,M)
+  
+  return dndM
+
+Tinker_mass_function = np.vectorize(Tinker_mass_function)
