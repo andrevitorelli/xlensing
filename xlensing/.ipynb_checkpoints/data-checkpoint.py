@@ -104,7 +104,7 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     region = source[region_mask]
     
     #select galaxy backgrounds
-    background_condition = (region[:,2]> 1.1*cluster[2] +.1)   #this is contentious and should be changed
+    background_condition = (region[:,2]> 1.0*cluster[2] +.2)   #this is contentious and should be changed
     background_region = region[background_condition,:]
 
     #critical lensing density and polar position of sources/clusters

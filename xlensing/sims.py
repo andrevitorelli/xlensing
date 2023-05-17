@@ -3,7 +3,7 @@
 import numpy as np
 import ngmix
 from xlensing.cosmo import DA, cosmology,cluster_overdensity,lightspeed,gravity,OmegaM
-from xlensing.model import 
+
 
 def rhoM(z):
   """Mass fraction of the critical mass density of the universe"""
