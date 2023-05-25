@@ -211,27 +211,6 @@ def NFW_shear(M200, C200, Z, PCC, SIGMA, M0, radii):
 
     return signal
   
-def _form(x):
-  if x > 1:
-    sq = np.sqrt(x**2-1)
-    result = np.arctan(sq)/sq
-  if x < 1:
-    sq = np.sqrt(1-x**2)
-    result = np.arctanh(sq)/sq
-  if x == 1:
-    result = 1  
-  return result
-    
-_form = np.vectorize(_form)  
-from scipy.interpolate import interp1d
-xx = np.linspace(1e-6,1e2,int(1e6))
-_form = interp1d(xx,_form(xx),fill_value='extrapolate')
-
-def Boost_model(B0,RS,radii):
-  """From McClintock et al. 2018"""
-  x = radii/RS
-  boosts = 1 + B0 *(1-_form(x))/(x*x-1)
-  return boosts 
   
 
 def Einasto_shear(Mvir,conc,z,pcc,sigma_off,M0,radii=np.logspace(-1,1,10)):

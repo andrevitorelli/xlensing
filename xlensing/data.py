@@ -253,8 +253,7 @@ def signal(stake,bin_limits):
 
   return Delta_Sigmas, Delta_Xigmas
 
-
-def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
+def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200,signal=signal):
     """
     cluster_backgrounds = a list of ndarrays, each containing 
     cluster background galaxies for lensing. They should contain: 
@@ -274,8 +273,27 @@ def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
     
     print("Total galaxies available per bin:")
     sources_radii = np.hstack([cluster_backgrounds[i][4] for i in range(len(cluster_backgrounds))])
-    print([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits ] )
+    bin_counts = np.array([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits ]) 
+    
+    print("Galaxies in each bin:")
+    print(bin_counts)
     print()
+    max_radius = np.max(bin_limits)
+    min_radius = np.min(bin_limits)
+    print("Boosts:")
+    total_gals = len(sources_radii)
+    area = np.pi*(max_radius**2 - min_radius**2)
+    density = total_gals/area
+    RR_area = 4*max_radius**2
+    RR_gals = density*RR_area
+    RRx=np.random.uniform(-max_radius,max_radius,round(RR_gals))
+    RRy=np.random.uniform(-max_radius,max_radius,round(RR_gals))
+    RR=np.sqrt(RRx**2+RRy**2)
+    RR_bins = np.array([len(RR[(RR > bini[0]) & (RR < bini[1])]) for bini in bin_limits ] )
+    boosts=bin_counts/RR_bins
+    print(boosts)
+    print()
+    
     
     Nbins=len(bin_limits)
 
@@ -301,7 +319,7 @@ def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
     sigmas_cov = np.cov(Delta_Sigmas.T)
     xigmas_cov = np.cov(Delta_Xigmas.T)
 
-    return sigmas, sigmas_cov, xigmas, xigmas_cov
+    return sigmas, sigmas_cov, xigmas, xigmas_cov,boosts
 
 def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     """
@@ -325,7 +343,21 @@ def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     print("Total galaxies available per bin:")
     sources_radii = np.hstack([cluster_backgrounds[i][4] for i in range(len(cluster_backgrounds))])
     print([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits ] )
-    print()    
+    print()
+    print("Boosts:")
+    total_gals = len(sources_radii)
+    area = np.pi*(max_radius**2 - min_radius**2)
+    density = total_gals/area
+    RR_area = 4*max_radius**2
+    RR_gals = density*RR_area
+    RRx=np.random.uniform(-max_radius,max_radius,round(RR_gals))
+    RRy=np.random.uniform(-max_radius,max_radius,round(RR_gals))
+    RR=np.sqrt(RRx**2+RRy**2)
+    RR_bins = np.array([len(RR[(RR > bini[0]) & (RR < bini[1])]) for bini in bin_limits ] )
+    boosts=bin_counts/RR_bins
+    print(boosts)
+    print()
+    
     
     Nbins=len(bin_limits)
     
@@ -372,6 +404,6 @@ def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     sigmas_cov = np.cov(Delta_Sigmas.T)
     xigmas_cov = np.cov(Delta_Xigmas.T)
     
-    return sigmas, sigmas_cov, xigmas, xigmas_cov
+    return sigmas, sigmas_cov, xigmas, xigmas_cov, boosts
 
 
