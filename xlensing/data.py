@@ -186,8 +186,9 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     region_mask = equatorial_to_polar(cluster[0],cluster[1],source[:,0],source[:,1])[0]<  angular_radius
     region = source[region_mask]
     
+    
     #select galaxy backgrounds
-    background_condition = (region[:,2]> 1.1*cluster[2] +0.1)   #this is contentious and should be changed
+    background_condition = (region[:,2]> 1.1*cluster[2])   #this is contentious and should be changed
     background_region = region[background_condition,:]
 
     #critical lensing density and polar position of sources/clusters
@@ -342,8 +343,11 @@ def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     
     print("Total galaxies available per bin:")
     sources_radii = np.hstack([cluster_backgrounds[i][4] for i in range(len(cluster_backgrounds))])
-    print([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits ] )
+    bin_counts = np.array([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits ])
+    print(bin_counts)
     print()
+    max_radius = np.max(bin_limits)
+    min_radius = np.min(bin_limits)
     print("Boosts:")
     total_gals = len(sources_radii)
     area = np.pi*(max_radius**2 - min_radius**2)
@@ -378,7 +382,8 @@ def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     Delta_Xigmas = np.empty((Nboot,Nbins)) #sigma_crit * ex (B-mode signal)
 
     #bootstrap
-    for sampleNo in range(Nboot):
+    import tqdm
+    for sampleNo in tqdm.tqdm(range(Nboot)):
 
         for radius, radial_bin in enumerate(radial_background):
 
@@ -393,6 +398,25 @@ def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
 
             Delta_Sigmas[sampleNo,radius] = Sigma/One_plus_K
             Delta_Xigmas[sampleNo,radius] = Xigma/One_plus_K
+    
+    ##################
+    #     #populate radial bins
+    #     bin_upper_cut = stake[:,stake[4,:]<bin_limits[radius,1]]
+    #     bin_cut = bin_upper_cut[:,bin_upper_cut[4,:]>bin_limits[radius,0]]
+
+    #     #sigma = average sigma_crit * shear * weight=(W/sigma_crit^2)
+    #     Sigma = np.average(bin_cut[0,:]*bin_cut[1,:],weights= bin_cut[3,:]/(bin_cut[0,:]**2))
+    #     Xigma = np.average(bin_cut[0,:]*bin_cut[2,:],weights= bin_cut[3,:]/(bin_cut[0,:]**2))
+
+    #     #average multiplicative bias correction
+    #     One_plus_K = np.average(bin_cut[5,:]+1,weights= bin_cut[3,:]/(bin_cut[0,:]**2))
+
+    #     Delta_Sigmas[radius] = Sigma/One_plus_K
+    #     Delta_Xigmas[radius] = Xigma/One_plus_K
+    
+    
+    ########33
+
 
     Delta_Sigmas = np.array(Delta_Sigmas)
     Delta_Xigmas = np.array(Delta_Xigmas)
