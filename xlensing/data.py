@@ -104,7 +104,7 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     region = source[region_mask]
     
     #select galaxy backgrounds
-    background_condition = (region[:,2]> 1.0*cluster[2] +.2)   #this is contentious and should be changed
+    background_condition = (region[:,2]> 1.1*cluster[2] +.1)   #this is contentious and should be changed
     background_region = region[background_condition,:]
 
     #critical lensing density and polar position of sources/clusters
@@ -187,7 +187,7 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     region = source[region_mask]
     
     #select galaxy backgrounds
-    background_condition = (region[:,2]> 1.1*cluster[2] +0.1)   #this is contentious and should be changed
+    background_condition = (region[:,2]> 1.1*cluster[2] +0.2)   #this is contentious and should be changed
     background_region = region[background_condition,:]
 
     #critical lensing density and polar position of sources/clusters
@@ -274,11 +274,31 @@ def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
     
     print("Total galaxies available per bin:")
     sources_radii = np.hstack([cluster_backgrounds[i][4] for i in range(len(cluster_backgrounds))])
-    print([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits ] )
+    bin_counts = np.array([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits]) 
+    total_gals = sum(bin_counts)
+    print(bin_counts)
     print()
+    #calculate boost factors
+
+
+    max_radius = np.max(bin_limits)
+    min_radius = np.min(bin_limits)
+    
+    area =np.pi*(max_radius**2-min_radius**2)#flat sky
+    density = total_gals/area
+    RR_area = 4*max_radius**2
+    RR_gals = density*RR_area
+    RRx=np.random.uniform(-max_radius,max_radius,round(RR_gals))
+    RRy=np.random.uniform(-max_radius,max_radius,round(RR_gals))
+    RR=np.sqrt(RRx**2+RRy**2)
+    RR_bins = np.array([len(RR[(RR > bini[0]) & (RR < bini[1])]) for bini in bin_limits ] )
+    boosts=bin_counts/RR_bins
+    print("Boost factors")
+    print(boosts)
+
+    
     
     Nbins=len(bin_limits)
-
     #sorts Nboot selections of the clusters all at once
     resample=np.random.randint(0,len(cluster_backgrounds),(Nboot,len(cluster_backgrounds)))
 
@@ -301,7 +321,7 @@ def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
     sigmas_cov = np.cov(Delta_Sigmas.T)
     xigmas_cov = np.cov(Delta_Xigmas.T)
 
-    return sigmas, sigmas_cov, xigmas, xigmas_cov
+    return sigmas*boosts, sigmas_cov, xigmas, xigmas_cov
 
 def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     """
