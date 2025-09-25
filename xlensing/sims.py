@@ -99,7 +99,6 @@ def make_simple_random_cat(density, width_rad, zrange, shape_noise,seed=1):
   sources_RA = rng.uniform(-width_rad,width_rad,size=Ngals)
   sources_DEC = rng.uniform(-width_rad,width_rad,size=Ngals)
   sources_Z = rng.uniform(zrange[0],zrange[1],size=Ngals)#np.random.uniform(0.3,2.,1000)
-  ellip = 2.
   
   sources_E1, sources_E2 = ngmix.priors.shape.GPriorBA(sigma=shape_noise,rng=rng).sample2d(Ngals)
   sources_R11 = rng.normal(1,shape_noise/100,size=Ngals)

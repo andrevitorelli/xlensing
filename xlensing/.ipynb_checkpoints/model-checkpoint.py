@@ -149,11 +149,11 @@ def NFW_shear(M200, C200, Z, PCC, SIGMA, M0, radii):
     - PCC: fraction of miscentered signal
     - SIGMA: characteristic miscentering
     - M0: baryonic mass of central gaelaxy
-    - radii: a collection of radii at which we calculate the model
+    - radii: a collection of radii at which we calculate the model (mpc)
     
     RETURNS:
     
-    A dict containing each part of the signal. See below.
+    A dict containing each part of the signal in Msun/pc2. See below.
     """
     
     #discard absurd values that may be proposed by MCMC-like algorithms
@@ -175,7 +175,7 @@ def NFW_shear(M200, C200, Z, PCC, SIGMA, M0, radii):
 
     #shear due to the baryonic mass of the central galaxy
     signal_BCG = M0/(np.pi*radii**2)
-    signal_BCG = signal_BCG/1.e12
+    signal_BCG = signal_BCG/1e12
     
     #shear due to correctly centered galaxy systems
     signal_NFW_centre =  np.array([(2*fact/(r*r))*integrate.quad(
