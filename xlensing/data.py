@@ -61,7 +61,7 @@ def annular_area(rad1,rad2):
     """Calculates the solid angle of a annulus"""
     return cap_area(rad2)-cap_area(rad1)
 
-def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=0.):
+def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     """
     Gets the lensing signal given a cluster and a lensfit source galaxy catalogue within a 
     radius from which we will get galaxies to measure tangential and cross 
@@ -119,7 +119,7 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=0.):
                     cluster[0],
                     cluster[1])
     rads, theta = polar_region['sep'], polar_region['theta']
-    #theta += sys_angle
+    theta += sys_angle
     #polar ellipticities
     et = -background_region[:,3]*np.cos(2*theta) - background_region[:,4]*np.sin(2*theta)
     ex = -background_region[:,3]*np.sin(2*theta) + background_region[:,4]*np.cos(2*theta)
@@ -375,18 +375,21 @@ def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     for sampleNo in range(Nboot):
 
         for radius, radial_bin in enumerate(radial_background):
-
-            sorted_galaxies = np.random.randint(0,len(radial_bin.T),len(radial_bin.T))
-            sorted_bin = np.array([radial_bin.T[i] for i in sorted_galaxies]).T
-
-            Sigma = np.average(sorted_bin[0,:]*sorted_bin[1,:],weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
-            Xigma = np.average(sorted_bin[0,:]*sorted_bin[2,:],weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
-
-            #average multiplicative bias correction
-            One_plus_K = np.average(sorted_bin[5,:]+1,weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
-
-            Delta_Sigmas[sampleNo,radius] = Sigma/One_plus_K
-            Delta_Xigmas[sampleNo,radius] = Xigma/One_plus_K
+            try:
+                sorted_galaxies = np.random.randint(0,len(radial_bin.T),len(radial_bin.T))
+                sorted_bin = np.array([radial_bin.T[i] for i in sorted_galaxies]).T
+    
+                Sigma = np.average(sorted_bin[0,:]*sorted_bin[1,:],weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
+                Xigma = np.average(sorted_bin[0,:]*sorted_bin[2,:],weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
+    
+                #average multiplicative bias correction
+                One_plus_K = np.average(sorted_bin[5,:]+1,weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
+    
+                Delta_Sigmas[sampleNo,radius] = Sigma/One_plus_K
+                Delta_Xigmas[sampleNo,radius] = Xigma/One_plus_K
+            except:
+                Delta_Sigmas[sampleNo,radius] = np.nan
+                Delta_Xigmas[sampleNo,radius] = np.nan               
 
     Delta_Sigmas = np.array(Delta_Sigmas)
     Delta_Xigmas = np.array(Delta_Xigmas)
