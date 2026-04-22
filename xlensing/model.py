@@ -50,7 +50,7 @@ def SigBar(x):
     return result   
 
 #load NFW miscentered profile
-resources = "/home/andre/github/xlensing/xlensing"
+resources = str(Path(__file__).parent) 
 MscRadii = Table.read(resources+"/misc_NFW_radii.fits")
 Profs = Table.read(resources+"/misc_NFW_profiles.fits")
 print("Lookup tables loaded!")
@@ -186,16 +186,16 @@ def Delta_Sigma_l(z, R, N=100):
     # Final result: (len(z), len(R))
     return 2/(R**2) * integrals - Sigma_l(z[:, None], R[None, :])
 
-def NFW_Delta_Sigma(M200, C200, Z, PCC, SIGMA, M0, radii):
+def NFW_Delta_Sigma(M200m, C200m, Z, FMISS, SIGMA_OFF, BCG_B_MASS, radii):
     """
     NFW MODEL:
     
-    - M200: mass in Msun
-    - C200: concentration
-    - Z: redshift
-    - PCC: fraction of miscentered signal
-    - SIGMA: characteristic miscentering
-    - M0: baryonic mass of central gaelaxy
+    - M200m: array of masses in Msun
+    - C200m: array of concentrations
+    - Z: redshifts
+    - FMISS: array of fraction of miscentered signal
+    - SIGMA_OFF: array of characteristic miscentering
+    - BCG_B_MASS: array of baryonic masses of central galaxies
     - radii: a collection of radii at which we calculate the model (mpc)
     
     RETURNS:
@@ -203,24 +203,24 @@ def NFW_Delta_Sigma(M200, C200, Z, PCC, SIGMA, M0, radii):
     A dict containing each part of the signal in Msun/pc2. See below.
     """
 
-    rs = r_vir_m(Z,M200)/C200
-    fact =  2*rs*NFW_delta_c(C200)*cosmo.rhoM(Z)
+    rs = r_vir_m(Z,M200m)/C200m
+    fact =  2*rs*NFW_delta_c(C200m)*cosmo.rhoM(Z)
     
-    xi = SIGMA/rs
+    xi = SIGMA_OFF/rs
     X = np.outer(radii,1/rs)
   
     sigx= SigX(X)
     sigbarx = SigBar(X)
 
-    signal_BCG = np.outer(M0,1/(np.pi*radii**2))
+    signal_BCG = np.outer(BCG_B_MASS,1/(np.pi*radii**2))
     signal_BCG = signal_BCG/1e12
 
     signal_NFW_centre = fact*(sigbarx-sigx)/1e12
 
     signal_NFW_miscc  = fact*Delta_Sigma_NFW_off_x(X.T,xi).T/1e12
-    signal_2ht = (Bias(Z, M200)[:,np.newaxis] * Delta_Sigma_l(Z,radii)).T/1e12
+    signal_2ht = (Bias(Z, M200m)[:,np.newaxis] * Delta_Sigma_l(Z,radii)).T/1e12
     
-    signal_total =signal_BCG + PCC[:,np.newaxis]*signal_NFW_centre.T + (1 - PCC[:,np.newaxis])*signal_NFW_miscc.T + signal_2ht.T
+    signal_total =signal_BCG + (1-FMISS[:,np.newaxis])*signal_NFW_centre.T + (FMISS[:,np.newaxis])*signal_NFW_miscc.T + signal_2ht.T
     
     signal = {'Signal': signal_total,
               'BCG Signal': signal_BCG,
