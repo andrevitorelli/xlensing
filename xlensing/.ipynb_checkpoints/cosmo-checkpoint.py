@@ -1,4 +1,4 @@
-from astropy.cosmology import FlatLambdaCDM
+from astropy.cosmology import FlatLambdaCDM, Planck18
 from numpy import sqrt
 
 
@@ -7,12 +7,12 @@ lightspeed = 299792.458  #km/s
 cluster_overdensity = 200
 collapse_density = 1.686
 gravity = 4.302e-9
-h=1
+h=Planck18.h#.7
 
 #Default cosmological parameters
-OmegaM = 0.3
-OmegaK = 0.0
-cosmology = FlatLambdaCDM(H0=100.*h,Om0=OmegaM) #can be changed in the code if wanted
+OmegaM = Planck18.Om0
+OmegaK = Planck18.Ok0
+cosmology = Planck18#FlatLambdaCDM(H0=100.*h,Om0=OmegaM) #can be changed in the code if wanted
 DA = lambda x,y: cosmology.angular_diameter_distance_z1z2(x,y).value #Mpc
 H = lambda a: 100.*h*sqrt(OmegaM*(a)**(-3) + OmegaK*(a)**(-2) + 1.-OmegaM)
 

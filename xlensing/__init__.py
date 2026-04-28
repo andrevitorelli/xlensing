@@ -1,2 +1,2 @@
-__version__ ='v0.2'
-from . import data, utils, fitting, cosmo, model, testing
+__version__ ='0.9'
+from . import data, utils, fitting, cosmo, model, sims
