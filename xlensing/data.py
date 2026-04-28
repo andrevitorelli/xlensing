@@ -223,47 +223,38 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     
     return result#, background_region
 
-def signal(stake,bin_limits):
+def signal(stake, bin_limits):
   """
-  cluster_backgrounds = a list of ndarrays, each containing cluster background galaxies for lensing. 
-  
-  They should contain: 
+  cluster_backgrounds = a list of ndarrays, each containing cluster background galaxies for lensing.
+
+  They should contain:
   - (0) Sigma_crit: the critical density calculated from the cluster and galaxy redshifts
   - (1) e_t: the tangential component of the shear
   - (2) e_x: the cross component of the shear
   - (3) W: the weight of the ellipticity measurement
   - (4) R: the angular diameter radius in Mpc/h between the cluster centre and the background
         galaxy position.
-  - (5) M: the estimation of multiplicative biases 
+  - (5) M: the estimation of multiplicative biases
   """
+  bin_limits = np.asarray(bin_limits)
+  sig, et, ex, w, R, M = stake[0], stake[1], stake[2], stake[3], stake[4], stake[5]
+  w_eff = w / sig**2
+
+  # in_bin[g, b] is True when galaxy g falls in radial bin b — shape (N_gal, Nbins)
+  in_bin = (R[:, None] > bin_limits[:, 0]) & (R[:, None] < bin_limits[:, 1])
+
+  # ΔΣ = Σ(e_t · W/Σ_crit) / Σ((1+M) · W/Σ_crit²)  — the shared Σ(w_eff) cancels
+  num_t   = np.dot(et * w / sig,     in_bin)  # (Nbins,)
+  num_x   = np.dot(ex * w / sig,     in_bin)
+  denom_K = np.dot((1 + M) * w_eff,  in_bin)
+
+  return num_t / denom_K, num_x / denom_K
 
 
-  Nbins=len(bin_limits)
-  Delta_Sigmas = np.empty(Nbins) #E-mode signal (tang. shear)
-  Delta_Xigmas = np.empty(Nbins) #B-mode signal (cross shear)
-
-  for radius in range(Nbins):
-    #populate radial bins
-    bin_upper_cut = stake[:,stake[4,:]<bin_limits[radius,1]]
-    bin_cut = bin_upper_cut[:,bin_upper_cut[4,:]>bin_limits[radius,0]]
-
-    #sigma = average sigma_crit * shear * weight=(W/sigma_crit^2)
-    Sigma = np.average(bin_cut[0,:]*bin_cut[1,:],weights= bin_cut[3,:]/(bin_cut[0,:]**2))
-    Xigma = np.average(bin_cut[0,:]*bin_cut[2,:],weights= bin_cut[3,:]/(bin_cut[0,:]**2))
-
-    #average multiplicative bias correction
-    One_plus_K = np.average(bin_cut[5,:]+1,weights= bin_cut[3,:]/(bin_cut[0,:]**2))
-
-    Delta_Sigmas[radius] = Sigma/One_plus_K
-    Delta_Xigmas[radius] = Xigma/One_plus_K
-
-  return Delta_Sigmas, Delta_Xigmas
-
-
-def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
+def stacked_signal(cluster_backgrounds, bin_limits, Nboot=200):
     """
-    cluster_backgrounds = a list of ndarrays, each containing 
-    cluster background galaxies for lensing. They should contain: 
+    cluster_backgrounds = a list of ndarrays, each containing
+    cluster background galaxies for lensing. They should contain:
     - (0) Sigma_crit: the critical density calculated from the cluster and galaxy redshifts
     - (1) e_t: the tangential component of the shear
     - (2) e_x: the cross component of the shear
@@ -271,68 +262,70 @@ def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
     - (4) R: the angular diameter radius in Mpc/h between the cluster centre and the background
           galaxy position.
     - (5) M: the estimation of multiplicative biases
-    
+
     bin_limits = an array containing the bin lower and upper bounds
-    
+
     Nboot = the number of resamplings desired
-    
     """
-    
+    bin_limits = np.asarray(bin_limits)
+    N_clusters = len(cluster_backgrounds)
+    Nbins = len(bin_limits)
+
+    # --- galaxy counts per bin for diagnostics and boost factors ---
+    sources_radii = np.hstack([bg[4] for bg in cluster_backgrounds])
+    in_bin_all = (sources_radii[:, None] > bin_limits[:, 0]) & (sources_radii[:, None] < bin_limits[:, 1])
+    bin_counts = in_bin_all.sum(axis=0)
+    total_gals = bin_counts.sum()
     print("Total galaxies available per bin:")
-    sources_radii = np.hstack([cluster_backgrounds[i][4] for i in range(len(cluster_backgrounds))])
-    bin_counts = np.array([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits]) 
-    total_gals = sum(bin_counts)
     print(bin_counts)
     print()
-    #calculate boost factors
 
+    # --- boost factors ---
+    max_radius, min_radius = np.max(bin_limits), np.min(bin_limits)
+    area = np.pi * (max_radius**2 - min_radius**2)
+    density = total_gals / area
+    RR_n = round(density * 4 * max_radius**2)
+    RRx = np.random.uniform(-max_radius, max_radius, RR_n)
+    RRy = np.random.uniform(-max_radius, max_radius, RR_n)
+    RR = np.hypot(RRx, RRy)
+    RR_bins = ((RR[:, None] > bin_limits[:, 0]) & (RR[:, None] < bin_limits[:, 1])).sum(axis=0)
+    boosts = bin_counts / RR_bins
 
-    max_radius = np.max(bin_limits)
-    min_radius = np.min(bin_limits)
-    
-    area =np.pi*(max_radius**2-min_radius**2)#flat sky
-    density = total_gals/area
-    RR_area = 4*max_radius**2
-    RR_gals = density*RR_area
-    RRx=np.random.uniform(-max_radius,max_radius,round(RR_gals))
-    RRy=np.random.uniform(-max_radius,max_radius,round(RR_gals))
-    RR=np.sqrt(RRx**2+RRy**2)
-    RR_bins = np.array([len(RR[(RR > bini[0]) & (RR < bini[1])]) for bini in bin_limits ] )
-    boosts=bin_counts/RR_bins
-    #print("Boost factors")
-    #print(boosts)
+    # --- precompute per-cluster per-bin weighted sums ---
+    # Decompose the signal so that bootstrap resampling is a pure array operation:
+    # ΔΣ_boot = Σ_c(sums_t[c]) / Σ_c(sums_K[c])  for resampled cluster indices c
+    sums_t = np.zeros((N_clusters, Nbins))
+    sums_x = np.zeros((N_clusters, Nbins))
+    sums_K = np.zeros((N_clusters, Nbins))
 
-    
-    
-    Nbins=len(bin_limits)
-    #sorts Nboot selections of the clusters all at once
-    resample=np.random.randint(0,len(cluster_backgrounds),(Nboot,len(cluster_backgrounds)))
+    for c, bg in enumerate(cluster_backgrounds):
+        sig, et, ex, w, R, M = bg[0], bg[1], bg[2], bg[3], bg[4], bg[5]
+        w_eff = w / sig**2
+        in_bin = (R[:, None] > bin_limits[:, 0]) & (R[:, None] < bin_limits[:, 1])  # (N_gal, Nbins)
+        sums_t[c] = np.dot(et * w / sig,    in_bin)
+        sums_x[c] = np.dot(ex * w / sig,    in_bin)
+        sums_K[c] = np.dot((1 + M) * w_eff, in_bin)
 
-    Delta_Sigmas = np.empty((Nboot,Nbins)) #E-mode signal (tang. shear)
-    Delta_Xigmas = np.empty((Nboot,Nbins)) #B-mode signal (cross shear)
+    # --- vectorised bootstrap: no Python loop over Nboot ---
+    resample = np.random.randint(0, N_clusters, (Nboot, N_clusters))  # (Nboot, N_clusters)
+    boot_t = sums_t[resample].sum(axis=1)  # (Nboot, Nbins)
+    boot_x = sums_x[resample].sum(axis=1)
+    boot_K = sums_K[resample].sum(axis=1)
 
-    #bootstrap
-    import tqdm  
-    for sampleNo in tqdm.tqdm(range(len(resample))):
-      stake = np.hstack([cluster_backgrounds[i] for i in resample[sampleNo]])
+    Delta_Sigmas = boot_t / boot_K
+    Delta_Xigmas = boot_x / boot_K
 
-      sigmas, xigmas = signal(stake,bin_limits)
-      Delta_Sigmas[sampleNo] = sigmas
-      Delta_Xigmas[sampleNo] = xigmas
-
-    #gather results
-    sigmas = np.mean(Delta_Sigmas,axis=0)
-    xigmas = np.mean(Delta_Xigmas,axis=0)
-
+    sigmas = Delta_Sigmas.mean(axis=0)
+    xigmas = Delta_Xigmas.mean(axis=0)
     sigmas_cov = np.cov(Delta_Sigmas.T)
     xigmas_cov = np.cov(Delta_Xigmas.T)
 
     return sigmas, boosts, sigmas_cov, xigmas, xigmas_cov
 
-def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
+def single_cluster(cluster_backgrounds, bin_limits, Nboot=500):
     """
-    cluster_backgrounds = a list of ndarrays, each containing 
-    cluster background galaxies for lensing. They should contain: 
+    cluster_backgrounds = a list of ndarrays, each containing
+    cluster background galaxies for lensing. They should contain:
     - (0) Sigma_crit: the critical density calculated from the cluster and galaxy redshifts
     - (1) e_t: the tangential component of the shear
     - (2) e_x: the cross component of the shear
@@ -340,67 +333,58 @@ def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     - (4) R: the angular diameter radius in Mpc/h between the cluster centre and the background
           galaxy position.
     - (5) M: the estimation of multiplicative biases
-    
+
     bin_limits = an array containing the bin lower and upper bounds
-    
+
     Nboot = the number of resamplings desired
-    
-    TODO: invert resampling bin structure in 1-cluster stacks
     """
-    
+    bin_limits = np.asarray(bin_limits)
+    Nbins = len(bin_limits)
+
+    sources_radii = np.hstack([bg[4] for bg in cluster_backgrounds])
+    in_bin_all = (sources_radii[:, None] > bin_limits[:, 0]) & (sources_radii[:, None] < bin_limits[:, 1])
     print("Total galaxies available per bin:")
-    sources_radii = np.hstack([cluster_backgrounds[i][4] for i in range(len(cluster_backgrounds))])
-    print([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits ] )
-    print()    
-    
-    Nbins=len(bin_limits)
-    
-    ##for single cluster stacks
+    print(in_bin_all.sum(axis=0).tolist())
+    print()
 
     print("Single cluster:")
     background = cluster_backgrounds[0]
-    print("Separating galaxies per radial bin...")
-    #separate all available galaxies into radial bins
-    radial_background = []
+    sig, et, ex, w, R, M = background[0], background[1], background[2], background[3], background[4], background[5]
 
-    for bins in bin_limits:
-        bin_upper_cut  = background[:,background[4]<bins[1]]
-        bin_lower_cut  = bin_upper_cut[:,bin_upper_cut[4]>bins[0]]
-        radial_background.append(bin_lower_cut)
+    Delta_Sigmas = np.full((Nboot, Nbins), np.nan)
+    Delta_Xigmas = np.full((Nboot, Nbins), np.nan)
 
-    Delta_Sigmas = np.empty((Nboot,Nbins)) #sigma_crit * et (E-mode signal)
-    Delta_Xigmas = np.empty((Nboot,Nbins)) #sigma_crit * ex (B-mode signal)
+    # Vectorise over Nboot within each bin: draw all bootstrap indices at once,
+    # then use advanced indexing bin_gals[:, idx] → (6, Nboot, N_gal) to avoid
+    # the inner Python loop over Nboot.
+    for b, (r_lo, r_hi) in enumerate(bin_limits):
+        mask = (R > r_lo) & (R < r_hi)
+        N_gal = mask.sum()
+        if N_gal == 0:
+            continue
 
-    #bootstrap
-    for sampleNo in range(Nboot):
+        bin_gals = background[:, mask]                          # (6, N_gal)
+        idx = np.random.randint(0, N_gal, (Nboot, N_gal))      # (Nboot, N_gal)
+        resampled = bin_gals[:, idx]                            # (6, Nboot, N_gal)
 
-        for radius, radial_bin in enumerate(radial_background):
-            try:
-                sorted_galaxies = np.random.randint(0,len(radial_bin.T),len(radial_bin.T))
-                sorted_bin = np.array([radial_bin.T[i] for i in sorted_galaxies]).T
-    
-                Sigma = np.average(sorted_bin[0,:]*sorted_bin[1,:],weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
-                Xigma = np.average(sorted_bin[0,:]*sorted_bin[2,:],weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
-    
-                #average multiplicative bias correction
-                One_plus_K = np.average(sorted_bin[5,:]+1,weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
-    
-                Delta_Sigmas[sampleNo,radius] = Sigma/One_plus_K
-                Delta_Xigmas[sampleNo,radius] = Xigma/One_plus_K
-            except:
-                Delta_Sigmas[sampleNo,radius] = np.nan
-                Delta_Xigmas[sampleNo,radius] = np.nan               
+        sig_b = resampled[0]   # (Nboot, N_gal)
+        et_b  = resampled[1]
+        ex_b  = resampled[2]
+        w_b   = resampled[3]
+        M_b   = resampled[5]
 
-    Delta_Sigmas = np.array(Delta_Sigmas)
-    Delta_Xigmas = np.array(Delta_Xigmas)
+        num_t   = (et_b * w_b / sig_b).sum(axis=-1)           # (Nboot,)
+        num_x   = (ex_b * w_b / sig_b).sum(axis=-1)
+        denom_K = ((1 + M_b) * w_b / sig_b**2).sum(axis=-1)
 
-    #gather results
-    sigmas = np.mean(Delta_Sigmas,axis=0)
-    xigmas = np.mean(Delta_Xigmas,axis=0)
+        Delta_Sigmas[:, b] = num_t / denom_K
+        Delta_Xigmas[:, b] = num_x / denom_K
 
+    sigmas = np.nanmean(Delta_Sigmas, axis=0)
+    xigmas = np.nanmean(Delta_Xigmas, axis=0)
     sigmas_cov = np.cov(Delta_Sigmas.T)
     xigmas_cov = np.cov(Delta_Xigmas.T)
-    
+
     return sigmas, sigmas_cov, xigmas, xigmas_cov
 
 
