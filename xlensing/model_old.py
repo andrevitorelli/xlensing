@@ -312,8 +312,6 @@ def ln_inv_sigma(z,M):
   lninvsig = np.log(invsig)
   return lninvsig
 
-ln_inv_sigma = np.vectorize(ln_inv_sigma)
-
 def dlninvsigmadM(z,M):
   deltaM =M/1000
   func = lambda m: ln_inv_sigma(z,m)
@@ -328,5 +326,3 @@ def Tinker_mass_function(z,M):
   dndM = Tinker_f(z,sigma) * rhoMz/M200 * dlninvsigmadM(z,M)
   
   return dndM
-
-Tinker_mass_function = np.vectorize(Tinker_mass_function)

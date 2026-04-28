@@ -36,8 +36,8 @@ def SigX(x):
     equal = x==1
     greater = x>1
     result[equal]=1/3
-    result[lesser] =(1 - 2/np.sqrt(1-x[lesser]**2)*np.arctanh(np.sqrt((1-x[lesser])/(1+x[lesser]))))/(x[lesser]**2-1) 
-    result[greater]=(1 - 2/np.sqrt(x[greater] **2-1)*np.arctan(np.sqrt((x[greater]-1)/(1+x[greater]))))/(x[greater]**2-1) 
+    result[lesser] =(1 - 2/np.sqrt(1-x[lesser]**2)*np.arctanh(np.sqrt((1-x[lesser])/(1+x[lesser]))))/(x[lesser]**2-1)
+    result[greater]=(1 - 2/np.sqrt(x[greater] **2-1)*np.arctan(np.sqrt((x[greater]-1)/(1+x[greater]))))/(x[greater]**2-1)
     return result
 def SigBar(x):
     result = np.zeros_like(x)
@@ -47,10 +47,10 @@ def SigBar(x):
     result[equal]  =2.*(1+np.log(0.5))
     result[lesser] = 2/x[lesser]**2 * ( 2./np.sqrt(1-x[lesser]**2)*np.arctanh(np.sqrt((1-x[lesser])/(1+x[lesser]))) + np.log(x[lesser]/2) )
     result[greater]= 2/x[greater]**2 * ( 2./np.sqrt(x[greater]**2-1)*np.arctan(np.sqrt((x[greater]-1)/(1+x[greater]))) + np.log(x[greater]/2) )
-    return result   
+    return result
 
 #load NFW miscentered profile
-resources = str(Path(__file__).parent) 
+resources = str(Path(__file__).parent)
 MscRadii = Table.read(resources+"/misc_NFW_radii.fits")
 Profs = Table.read(resources+"/misc_NFW_profiles.fits")
 print("Lookup tables loaded!")
@@ -59,16 +59,9 @@ spline = BSpline(MscRadii['col0'],Profs['col0'],Profs['col1'].T,s=0)
 def Delta_Sigma_NFW_off_x(matrix, vector):
     """Vectorized evaluation for (N×M matrix, N vector) pairs"""
     N, M = matrix.shape
-    
-    # Flatten matrix: (N*M,)
     x_flat = matrix.ravel()
-    
-    # Create matching y values: each y[i] repeated M times
     y_flat = np.repeat(vector, M)
-    
-    # Evaluate all points at once
     z_flat = spline.ev(x_flat, y_flat)
-    
     return z_flat.reshape(N, M)
 
 
@@ -77,8 +70,6 @@ def Delta_Sigma_NFW_off_x(matrix, vector):
 #read and interpolate the power spectrum
 matter_power_camb = ascii.read(resources+"/test_matterpower.dat")
 k, Pk  = matter_power_camb['col1'], matter_power_camb['col2']
-# mink =min(k)
-# maxk = max(k)
 PowerSpec = USpline(k,Pk,s=0,k=5,ext=1)
 
 #read and interpolate matter correlation
@@ -94,36 +85,42 @@ Window = lambda x: (3/(x*x*x))*(np.sin(x)-x*np.cos(x))
 def D1(a_array, N=1000):
     """Simplest vectorized version"""
     a_array = np.asarray(a_array)
-    
+
     # Create 2D grid: rows = different a values, columns = integration points
     x_grid = np.outer(a_array, np.linspace(0, 1, N))
     x_grid = np.maximum(x_grid, 1e-10)  # avoid x=0
-    
+
     # Vectorized computation
     H_x = cosmo.H(x_grid)
     integrand = (100 * cosmo.h / (x_grid * H_x))**3
     integrals = np.trapezoid(integrand, x_grid, axis=1)
     return cosmo.H(a_array) * integrals
 
-dnorm = D1(1.)[0]
+dnorm = D1(np.array([1.]))[0]
+
+# Precompute D(a) as a spline — avoids an N×1000 quadrature grid on every call.
+# D1 is called once here at import; D(a) is then just N spline evaluations.
+_a_D_grid = np.linspace(1e-3, 1.0, 500)
+_D_spline = USpline(_a_D_grid, D1(_a_D_grid) / dnorm, s=0, k=3, ext=0)
+
 def D(a):
-    return D1(a)/dnorm
+    return _D_spline(np.asarray(a))
 
 k_grid = np.logspace(-4, 4, 1000)  # Adjust as needed
 k_squared = (k_grid**2) / 19.7392
 power_spec = PowerSpec(k_grid)
 k_grid = k_grid[:, None]
 
+# Precompute sigma²(R) without the D(z) factor, which separates as sigma²(z,R)=D(z)²·sigma²_pure(R).
+# Avoids rebuilding a 1000×N Window grid on every call; replaced by N spline evaluations.
+_R_sigma_grid = np.logspace(-3, 3, 1000)
+_sigma2_pure = np.trapezoid(
+    k_squared[:, None] * power_spec[:, None] * Window(k_grid * _R_sigma_grid)**2,
+    k_grid[:, 0], axis=0)
+_sigma2_R_spline = USpline(_R_sigma_grid, _sigma2_pure, s=0, k=3, ext=0)
+
 def sigma_squared(z, R):
-    window = Window(k_grid * R)
-    integrand = k_squared[:, None] * power_spec[:, None] * window**2
-    
-    # Numerical integration
-    sigma2 = np.trapezoid(integrand, k_grid[:, 0], axis=0)
-    
-    # Apply D(z)^2
-    D2 = D(cosmo.scale_factor(z))**2
-    return D2 * sigma2
+    return D(cosmo.scale_factor(z))**2 * _sigma2_R_spline(R)
 
 #sigma_8
 def sigma8():
@@ -165,31 +162,26 @@ w_johnston_val = Table.read(resources+"/W_johnston.fits") #precalculated for fas
 W_Johnston = USpline(w_johnston_val['col0'],w_johnston_val['col1'],s=0,k=5,ext=1)
 Sigma_l = lambda z,R: (1+z)**2*W_Johnston((1+z)*R)
 
-def Delta_Sigma_l(z, R, N=100):
+# Precompute G(u) = ∫₀ᵘ v·W_Johnston(v) dv.
+# Substitution u=(1+z)x shows ∫₀ᴿ x·Σₗ(z,x)dx = G((1+z)R), collapsing the
+# N×M×N_int integration array in Delta_Sigma_l to N×M spline evaluations.
+_u_G_grid = np.logspace(-6, 4, 10000)
+_G_vals = integrate.cumulative_trapezoid(_u_G_grid * W_Johnston(_u_G_grid), _u_G_grid, initial=0)
+_G_spline = USpline(_u_G_grid, _G_vals, s=0, k=3, ext=3)  # ext=3: clamp to boundary outside range
+
+def Delta_Sigma_l(z, R):
     """
-    Vectorized Delta_Sigma_l for 1D arrays z and R
-    Returns array of shape (len(z), len(R))
+    Two-halo Delta_Sigma for 1D arrays z (N,) and R (M,).
+    Returns array of shape (N, M).
     """
-    # Create integration grid: (len(R), N)
-    x_grid = np.outer(R, np.linspace(0, 1, N))
-    x_grid = np.maximum(x_grid, 1e-10)
-    
-    # Compute Sigma_l for all combinations: (len(z), len(R), N)
-    # z[:, None, None] -> (len(z), 1, 1)
-    # x_grid[None, :, :] -> (1, len(R), N)
-    Sigma_grid = Sigma_l(z[:, None, None], x_grid[None, :, :])
-    
-    # Integrate over x: (len(z), len(R))
-    integrand = x_grid[None, :, :] * Sigma_grid
-    integrals = np.trapezoid(integrand, x_grid[None, :, :], axis=-1)
-    
-    # Final result: (len(z), len(R))
-    return 2/(R**2) * integrals - Sigma_l(z[:, None], R[None, :])
+    u = np.outer(1 + z, R)  # (N, M)
+    G = _G_spline(u.ravel()).reshape(u.shape)
+    return 2 / R**2 * G - Sigma_l(z[:, None], R[None, :])
 
 def NFW_Delta_Sigma(M200m, C200m, Z, FMISS, SIGMA_OFF, BCG_B_MASS, radii):
     """
     NFW MODEL:
-    
+
     - M200m: array of masses in Msun
     - C200m: array of concentrations
     - Z: redshifts
@@ -197,37 +189,37 @@ def NFW_Delta_Sigma(M200m, C200m, Z, FMISS, SIGMA_OFF, BCG_B_MASS, radii):
     - SIGMA_OFF: array of characteristic miscentering
     - BCG_B_MASS: array of baryonic masses of central galaxies
     - radii: a collection of radii at which we calculate the model (mpc)
-    
+
     RETURNS:
-    
-    A dict containing each part of the signal in Msun/pc2. See below.
+
+    A dict with each value an (N, M) array giving the signal in Msun/pc2.
     """
 
-    rs = r_vir_m(Z,M200m)/C200m
-    fact =  2*rs*NFW_delta_c(C200m)*cosmo.rhoM(Z)
-    
-    xi = SIGMA_OFF/rs
-    X = np.outer(radii,1/rs)
-  
-    sigx= SigX(X)
-    sigbarx = SigBar(X)
+    rs   = r_vir_m(Z, M200m) / C200m                    # (N,)
+    fact = 2 * rs * NFW_delta_c(C200m) * cosmo.rhoM(Z)  # (N,)
+    xi   = SIGMA_OFF / rs                                # (N,)
 
-    signal_BCG = np.outer(BCG_B_MASS,1/(np.pi*radii**2))
-    signal_BCG = signal_BCG/1e12
+    # X[n, m] = radii[m] / rs[n]  — (N, M) layout avoids all downstream transposes
+    X = radii[np.newaxis, :] / rs[:, np.newaxis]         # (N, M)
 
-    signal_NFW_centre = fact*(sigbarx-sigx)/1e12
+    sigx    = SigX(X)   # (N, M)
+    sigbarx = SigBar(X) # (N, M)
 
-    signal_NFW_miscc  = fact*Delta_Sigma_NFW_off_x(X.T,xi).T/1e12
-    signal_2ht = (Bias(Z, M200m)[:,np.newaxis] * Delta_Sigma_l(Z,radii)).T/1e12
-    
-    signal_total =signal_BCG + (1-FMISS[:,np.newaxis])*signal_NFW_centre.T + (FMISS[:,np.newaxis])*signal_NFW_miscc.T + signal_2ht.T
-    
-    signal = {'Signal': signal_total,
-              'BCG Signal': signal_BCG,
-              'NFW Signal': signal_NFW_centre.T,
-              'Miscentered Signal': signal_NFW_miscc.T,
-              'Two-halo term': signal_2ht.T,
-              'radii': radii
-             }
+    signal_BCG        = BCG_B_MASS[:, np.newaxis] / (np.pi * radii[np.newaxis, :]**2) / 1e12  # (N, M)
+    signal_NFW_centre = fact[:, np.newaxis] * (sigbarx - sigx) / 1e12                         # (N, M)
+    signal_NFW_miscc  = fact[:, np.newaxis] * Delta_Sigma_NFW_off_x(X, xi) / 1e12             # (N, M)
+    signal_2ht        = Bias(Z, M200m)[:, np.newaxis] * Delta_Sigma_l(Z, radii) / 1e12        # (N, M)
 
-    return signal
+    signal_total = (signal_BCG
+                    + (1 - FMISS[:, np.newaxis]) * signal_NFW_centre
+                    +      FMISS[:, np.newaxis]  * signal_NFW_miscc
+                    + signal_2ht)                                                               # (N, M)
+
+    return {
+        'Signal':             signal_total,
+        'BCG Signal':         signal_BCG,
+        'NFW Signal':         signal_NFW_centre,
+        'Miscentered Signal': signal_NFW_miscc,
+        'Two-halo term':      signal_2ht,
+        'radii':              radii,
+    }
