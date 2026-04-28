@@ -198,15 +198,16 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
 
     #critical lensing density and polar position of sources/clusters
     sigs = sigmacrit(cluster[2],background_region[:,2])/1e12 #msun/pc^2 is better than msun/mpc^2 for numerical reasons
-    rads, theta = equatorial_to_polar(background_region[:,0],
+    polar_region = equatorial_to_polar(background_region[:,0],
                     background_region[:,1],
                     cluster[0],
                     cluster[1])
+    rads, theta = polar_region['sep'], polar_region['theta']
     theta += sys_angle
     #polar ellipticities
     et = -background_region[:,3]*np.cos(2*theta) - background_region[:,4]*np.sin(2*theta)
     ex = -background_region[:,3]*np.sin(2*theta) + background_region[:,4]*np.cos(2*theta)
-    
+
     Rt = tangential_response(background_region[:,6],
                              background_region[:,7],
                              background_region[:,8],
