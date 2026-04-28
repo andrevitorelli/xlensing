@@ -47,7 +47,11 @@ def equatorial_to_polar(lon1, lat1, lon2, lat2):
     L = lon2-lon1
     denominator2 = clat1*slat2/clat2 - slat1*cdlon
     theta = np.arctan2(sdlon,denominator2)
-    return sep, theta  
+    result = {
+        'sep': sep,
+        'theta': theta
+    }
+    return result 
     
 def cap_area(radius):
     """Calculates the solid angle of a cap"""
@@ -81,7 +85,7 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     
       result: a dict of arrays with:
       
-      - Critical density: the \Sigma_{crit}, for weak lensing (N values)
+      - Critical density: the \\Sigma_{crit}, for weak lensing (N values)
       - Tangential Shear: e_t (N values)
       - Cross Shear: e_x (N values)
       - Radial Distance: the angular diameter distance between the center and the position of the obj (N values)
@@ -100,19 +104,21 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     angular_radius = radius/cluster_DA
     
     #select cluster area
-    region_mask = angular_separation(cluster[0],cluster[1],source[:,0],source[:,1])<  angular_radius
+    polar_background = equatorial_to_polar(cluster[0],cluster[1],source[:,0],source[:,1])
+    region_mask = polar_background['sep'] <  angular_radius
     region = source[region_mask]
     
     #select galaxy backgrounds
-    background_condition = (region[:,2]> 1.05*cluster[2])   #this is contentious and should be changed
+    background_condition = (region[:,2]> 1.1*cluster[2] +.1)   #this is contentious and should be changed
     background_region = region[background_condition,:]
 
     #critical lensing density and polar position of sources/clusters
     sigs = sigmacrit(cluster[2],background_region[:,2])/1e12 #msun/pc^2 is better than msun/mpc^2 for numerical reasons
-    rads, theta = equatorial_to_polar(background_region[:,0],
+    polar_region= equatorial_to_polar(background_region[:,0],
                     background_region[:,1],
                     cluster[0],
                     cluster[1])
+    rads, theta = polar_region['sep'], polar_region['theta']
     theta += sys_angle
     #polar ellipticities
     et = -background_region[:,3]*np.cos(2*theta) - background_region[:,4]*np.sin(2*theta)
@@ -163,7 +169,7 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     
       result: a dict of arrays with:
       
-      - Critical density: the \Sigma_{crit}, for weak lensing (N values)
+      - Critical density: the \\Sigma_{crit}, for weak lensing (N values)
       - Tangential Shear: e_t (N values)
       - Cross Shear: e_x (N values)
       - Radial Distance: the angular diameter distance between the center and the position of the obj (N values)
@@ -183,7 +189,7 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     angular_radius = radius/cluster_DA
     
     #select cluster area
-    region_mask = equatorial_to_polar(cluster[0],cluster[1],source[:,0],source[:,1])[0]<  angular_radius
+    region_mask = equatorial_to_polar(cluster[0],cluster[1],source[:,0],source[:,1])['sep']<  angular_radius
     region = source[region_mask]
     
     #select galaxy backgrounds
@@ -274,21 +280,42 @@ def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
     
     print("Total galaxies available per bin:")
     sources_radii = np.hstack([cluster_backgrounds[i][4] for i in range(len(cluster_backgrounds))])
-    print([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits ] )
+    bin_counts = np.array([len(sources_radii[(sources_radii > bini[0]) & (sources_radii < bini[1])]) for bini in bin_limits]) 
+    total_gals = sum(bin_counts)
+    print(bin_counts)
     print()
+    #calculate boost factors
+
+
+    max_radius = np.max(bin_limits)
+    min_radius = np.min(bin_limits)
+    
+    area =np.pi*(max_radius**2-min_radius**2)#flat sky
+    density = total_gals/area
+    RR_area = 4*max_radius**2
+    RR_gals = density*RR_area
+    RRx=np.random.uniform(-max_radius,max_radius,round(RR_gals))
+    RRy=np.random.uniform(-max_radius,max_radius,round(RR_gals))
+    RR=np.sqrt(RRx**2+RRy**2)
+    RR_bins = np.array([len(RR[(RR > bini[0]) & (RR < bini[1])]) for bini in bin_limits ] )
+    boosts=bin_counts/RR_bins
+    #print("Boost factors")
+    #print(boosts)
+
+    
     
     Nbins=len(bin_limits)
-
     #sorts Nboot selections of the clusters all at once
     resample=np.random.randint(0,len(cluster_backgrounds),(Nboot,len(cluster_backgrounds)))
 
     Delta_Sigmas = np.empty((Nboot,Nbins)) #E-mode signal (tang. shear)
     Delta_Xigmas = np.empty((Nboot,Nbins)) #B-mode signal (cross shear)
 
-      #bootstrap
-    for sampleNo in range(len(resample)):
+    #bootstrap
+    import tqdm  
+    for sampleNo in tqdm.tqdm(range(len(resample))):
       stake = np.hstack([cluster_backgrounds[i] for i in resample[sampleNo]])
-      
+
       sigmas, xigmas = signal(stake,bin_limits)
       Delta_Sigmas[sampleNo] = sigmas
       Delta_Xigmas[sampleNo] = xigmas
@@ -300,7 +327,7 @@ def stacked_signal(cluster_backgrounds,bin_limits,Nboot=200):
     sigmas_cov = np.cov(Delta_Sigmas.T)
     xigmas_cov = np.cov(Delta_Xigmas.T)
 
-    return sigmas, sigmas_cov, xigmas, xigmas_cov
+    return sigmas, boosts, sigmas_cov, xigmas, xigmas_cov
 
 def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     """
@@ -348,18 +375,21 @@ def single_cluster(cluster_backgrounds,bin_limits,Nboot=500):
     for sampleNo in range(Nboot):
 
         for radius, radial_bin in enumerate(radial_background):
-
-            sorted_galaxies = np.random.randint(0,len(radial_bin.T),len(radial_bin.T))
-            sorted_bin = np.array([radial_bin.T[i] for i in sorted_galaxies]).T
-
-            Sigma = np.average(sorted_bin[0,:]*sorted_bin[1,:],weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
-            Xigma = np.average(sorted_bin[0,:]*sorted_bin[2,:],weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
-
-            #average multiplicative bias correction
-            One_plus_K = np.average(sorted_bin[5,:]+1,weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
-
-            Delta_Sigmas[sampleNo,radius] = Sigma/One_plus_K
-            Delta_Xigmas[sampleNo,radius] = Xigma/One_plus_K
+            try:
+                sorted_galaxies = np.random.randint(0,len(radial_bin.T),len(radial_bin.T))
+                sorted_bin = np.array([radial_bin.T[i] for i in sorted_galaxies]).T
+    
+                Sigma = np.average(sorted_bin[0,:]*sorted_bin[1,:],weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
+                Xigma = np.average(sorted_bin[0,:]*sorted_bin[2,:],weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
+    
+                #average multiplicative bias correction
+                One_plus_K = np.average(sorted_bin[5,:]+1,weights= sorted_bin[3,:]/(sorted_bin[0,:]**2))
+    
+                Delta_Sigmas[sampleNo,radius] = Sigma/One_plus_K
+                Delta_Xigmas[sampleNo,radius] = Xigma/One_plus_K
+            except:
+                Delta_Sigmas[sampleNo,radius] = np.nan
+                Delta_Xigmas[sampleNo,radius] = np.nan               
 
     Delta_Sigmas = np.array(Delta_Sigmas)
     Delta_Xigmas = np.array(Delta_Xigmas)
