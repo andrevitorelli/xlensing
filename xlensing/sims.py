@@ -37,6 +37,8 @@ def gNFW(x):
     g = 10/3 +4*np.log(1/2)
   return g
 
+_gNFW_vec = np.vectorize(gNFW, otypes=[float])
+
 def NFW_tangential_shear(Mlens, conc, zlens, zsource, r):
   """NFW shear in physical coordinates at the plane of the lens"""  
   #define scale radius of NFW
@@ -311,7 +313,7 @@ def apply_triaxial_NFW_shear_region(cluster, galaxies):
         rs     = r_vir(z_lens, cluster[3]) / cluster[4]
         amp    = rs * NFW_delta_c(cluster[4]) * rhoM(z_lens)
         x_arr  = np.maximum(r_eff, 1e-4) / rs
-        gammat = amp / sigcrit * np.vectorize(gNFW)(x_arr)
+        gammat = amp / sigcrit * _gNFW_vec(x_arr)
 
         gammas[bg_mask] = gammat * np.exp(2j * phi_eff)
 
