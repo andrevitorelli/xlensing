@@ -284,18 +284,37 @@ def apply_triaxial_NFW_shear_region(cluster, galaxies):
     q_maj, q_min, pa_intrinsic = project_ellipsoid(a, b, c, theta_los, phi_los)
     pa = pa_intrinsic + pa_offset
 
-    gammas = []
-    for galaxy in galaxies:
-        if galaxy[2] > cluster[2]:
-            gammas.append(triaxial_NFW_wcs_cluster_shear(
-                cluster[3], cluster[4], cluster[2], galaxy[2],
-                cluster[0], cluster[1], galaxy[0], galaxy[1],
-                q_maj, q_min, pa,
-            ))
-        else:
-            gammas.append(0)
+    bg_mask = galaxies[:, 2] > cluster[2]
+    gammas  = np.zeros(len(galaxies), dtype=complex)
 
-    gammas    = np.array(gammas)
+    if bg_mask.any():
+        bg      = galaxies[bg_mask]
+        z_lens  = float(cluster[2])
+        DA_lens = DA(0, z_lens)
+
+        sep, theta = equatorial_to_polar(cluster[0], cluster[1], bg[:, 0], bg[:, 1])
+        dx = DA_lens * sep * np.sin(theta)
+        dy = DA_lens * sep * np.cos(theta)
+
+        u = dx * np.sin(pa) + dy * np.cos(pa)
+        v = dx * np.cos(pa) - dy * np.sin(pa)
+
+        r_eff   = np.sqrt((u / q_maj)**2 + (v / q_min)**2) * np.sqrt(q_maj * q_min)
+        gx      = np.sin(pa) * u / q_maj**2 + np.cos(pa) * v / q_min**2
+        gy      = np.cos(pa) * u / q_maj**2 - np.sin(pa) * v / q_min**2
+        phi_eff = np.arctan2(gx, gy)
+
+        # Three DA calls with array inputs instead of one per galaxy
+        z_src   = bg[:, 2]
+        sigcrit = (lightspeed**2 / (4 * np.pi * gravity)) * DA(0, z_src) / (DA_lens * DA(z_lens, z_src))
+
+        rs     = r_vir(z_lens, cluster[3]) / cluster[4]
+        amp    = rs * NFW_delta_c(cluster[4]) * rhoM(z_lens)
+        x_arr  = np.maximum(r_eff, 1e-4) / rs
+        gammat = amp / sigcrit * np.vectorize(gNFW)(x_arr)
+
+        gammas[bg_mask] = gammat * np.exp(2j * phi_eff)
+
     sheared_e = add_shears(galaxies[:, 3] + 1j * galaxies[:, 4], gammas)
     galaxies[:, 3] = sheared_e.real
     galaxies[:, 4] = sheared_e.imag
