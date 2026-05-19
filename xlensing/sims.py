@@ -91,13 +91,41 @@ def add_shears(e,eadd):
   sume = (e+eadd)/(1+np.conj(eadd)*e)  
   return sume
 
-def make_simple_random_cat(density, width_rad, zrange, shape_noise,seed=1):
-  """simple random galaxies with a metacal-catalog like output"""
+def make_simple_random_cat(density, width_rad, zrange, shape_noise,seed=1,
+                           poisson_density=False):
+  """simple random galaxies with a metacal-catalog like output.
+
+  Parameters
+  ----------
+  density : float
+      Target number density [gal/arcmin^2].
+  width_rad : float
+      Half-width of the square field [rad].  Galaxies are drawn uniformly in
+      RA,DEC in [-width_rad, +width_rad].
+  zrange : (float, float)
+      Source redshift range, sampled uniformly.
+  shape_noise : float
+      Shape-noise dispersion used by GPriorBA.  Set to 0 for noise-free shapes.
+  seed : int
+      RNG seed.
+  poisson_density : bool
+      If False (default), the number of galaxies is the deterministic
+      ``round(density * width_arcmin**2)``.  If True, it is a Poisson draw
+      around that expected count, so that re-draws produce slightly different
+      catalogue sizes — useful when generating an independent background
+      catalogue per cluster.
+  """
   rng = np.random.RandomState(seed)
 
   width_arcmin = width_rad*3437.75
-  Ngals = round(density*width_arcmin**2)
-  
+  expected_Ngals = density * width_arcmin**2
+  if poisson_density:
+    Ngals = int(rng.poisson(expected_Ngals))
+    if Ngals < 1:
+      Ngals = 1
+  else:
+    Ngals = round(expected_Ngals)
+
   sources_RA = rng.uniform(-width_rad,width_rad,size=Ngals)
   sources_DEC = rng.uniform(-width_rad,width_rad,size=Ngals)
   sources_Z = rng.uniform(zrange[0],zrange[1],size=Ngals)#np.random.uniform(0.3,2.,1000)
@@ -186,6 +214,84 @@ def project_ellipsoid(a, b, c, theta_los, phi_los):
     pa    = np.arctan2(eigvecs[1, 0], eigvecs[0, 0])  # PA of major axis from e1
 
     return q_maj, q_min, pa
+
+
+def sample_triaxial_shapes(z, M, ba_range=(0.5, 1.0), ca_lo=0.3,
+                            isotropic_los=True, rng=None):
+    """Sample CDM-like triaxial halo shapes and project them.
+
+    For each cluster:
+      * 3D axis ratios: ``b/a ~ U(ba_range)`` and ``c/a ~ U(ca_lo, b/a)``,
+        mimicking the CDM N-body shape distributions of Allgood+06,
+        Schneider+12.
+      * Line-of-sight direction: isotropic by default
+        (``cos(theta) ~ U(0,1)``, ``phi ~ U(0, 2*pi)``).
+      * Projected ellipse on the sky: computed by ``project_ellipsoid``
+        from the virial-radius semi-major axis ``r_vir(z, M)``.
+
+    Parameters
+    ----------
+    z, M : array_like (N,)
+        Per-cluster redshift and M200 [M_sun].
+    ba_range : (float, float)
+        Uniform range for the intermediate-to-major axis ratio b/a.
+    ca_lo : float
+        Lower bound of the minor-to-major axis ratio c/a; the upper bound is
+        b/a (so c/a <= b/a element-wise).
+    isotropic_los : bool
+        If True (default), draw isotropic LOS directions on the sphere.
+        If False, fix ``theta_los = 0`` (LOS along the c-axis, face-on).
+    rng : numpy.random.Generator or None
+        Random generator; if None a fresh ``default_rng()`` is used.
+
+    Returns
+    -------
+    dict with keys (all ndarrays of shape (N,)):
+        q_ba, q_ca           : 3D axis ratios used in the draw
+        theta_los, phi_los   : LOS direction in the ellipsoid principal frame
+        r_vir                : virial radius [Mpc] (semi-major 3D axis)
+        q_maj, q_min         : projected semi-axes on the sky [Mpc]
+        pa                   : position angle of the projected major axis [rad]
+    """
+    z = np.atleast_1d(np.asarray(z, dtype=float))
+    M = np.atleast_1d(np.asarray(M, dtype=float))
+    if len(z) != len(M):
+        raise ValueError("z and M must have the same length")
+    N = len(z)
+    if rng is None:
+        rng = np.random.default_rng()
+
+    r_vir_vals = np.array([r_vir(float(zi), float(Mi)) for zi, Mi in zip(z, M)])
+    q_ba = rng.uniform(ba_range[0], ba_range[1], N)
+    q_ca = rng.uniform(ca_lo, q_ba)
+
+    if isotropic_los:
+        theta_los = np.arccos(rng.uniform(0.0, 1.0, N))
+    else:
+        theta_los = np.zeros(N)
+    phi_los = rng.uniform(0.0, 2 * np.pi, N)
+
+    q_maj = np.zeros(N)
+    q_min = np.zeros(N)
+    pa    = np.zeros(N)
+    for i in range(N):
+        a = r_vir_vals[i]
+        b = q_ba[i] * a
+        c = q_ca[i] * a
+        q_maj[i], q_min[i], pa[i] = project_ellipsoid(
+            a, b, c, theta_los[i], phi_los[i]
+        )
+
+    return {
+        'q_ba':      q_ba,
+        'q_ca':      q_ca,
+        'theta_los': theta_los,
+        'phi_los':   phi_los,
+        'r_vir':     r_vir_vals,
+        'q_maj':     q_maj,
+        'q_min':     q_min,
+        'pa':        pa,
+    }
 
 
 def triaxial_NFW_wcs_cluster_shear(
