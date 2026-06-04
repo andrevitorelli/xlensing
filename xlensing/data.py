@@ -254,34 +254,57 @@ def signal(stake, bin_limits):
 
 def stacked_signal(cluster_backgrounds, bin_limits, Nboot=200):
     """
-    cluster_backgrounds = a list of ndarrays, each containing
-    cluster background galaxies for lensing. They should contain:
-    - (0) Sigma_crit: the critical density calculated from the cluster and galaxy redshifts
-    - (1) e_t: the tangential component of the shear
-    - (2) e_x: the cross component of the shear
-    - (3) W: the weight of the ellipticity measurement
-    - (4) R: the angular diameter radius in Mpc/h between the cluster centre and the background
-          galaxy position.
-    - (5) M: the estimation of multiplicative biases
+    Stacked ΔΣ profile with the boost factor computed by the same cluster
+    bootstrap, so both the boost-corrected signal and its covariance fully
+    account for the boost factor's uncertainty and its joint correlation
+    with the measured ΔΣ.
 
-    bin_limits = an array containing the bin lower and upper bounds
+    Parameters
+    ----------
+    cluster_backgrounds : list of (6, N_gal) ndarrays
+        One per cluster, rows are
+          (0) Σ_crit, (1) e_t, (2) e_x, (3) W, (4) R [Mpc], (5) M.
+    bin_limits : (Nbins, 2) array
+        Per-bin (low, high) radial edges in Mpc.
+    Nboot : int
+        Number of cluster-resamples used for bootstrap.
 
-    Nboot = the number of resamplings desired
+    Returns
+    -------
+    sigmas : (Nbins,)
+        Boost-corrected ΔΣ — the mean of B(R) · ΔΣ_raw(R) across bootstrap
+        resamples.
+    boosts : (Nbins,)
+        Mean boost factor B(R) = N_obs(R) / N_random(R) from the bootstrap.
+    boosts_cov : (Nbins, Nbins)
+        Boost-factor covariance from the bootstrap.
+    sigmas_cov : (Nbins, Nbins)
+        Covariance of the boost-corrected ΔΣ.  Because the boost and the raw
+        ΔΣ share the same resample indices each iteration, this covariance
+        captures both contributions and their cross-correlation exactly, with
+        no need for additional error propagation in the caller.
+    xigmas : (Nbins,)
+        Boost-corrected cross-shear ΔΣ_× (should be ≈ 0).
+    xigmas_cov : (Nbins, Nbins)
+        Covariance of the boost-corrected cross-shear.
     """
     bin_limits = np.asarray(bin_limits)
     N_clusters = len(cluster_backgrounds)
     Nbins = len(bin_limits)
 
-    # --- galaxy counts per bin for diagnostics and boost factors ---
-    sources_radii = np.hstack([bg[4] for bg in cluster_backgrounds])
-    in_bin_all = (sources_radii[:, None] > bin_limits[:, 0]) & (sources_radii[:, None] < bin_limits[:, 1])
-    bin_counts = in_bin_all.sum(axis=0)
+    # --- per-cluster per-bin source counts (input to bootstrapped boost) ---
+    cluster_bin_counts = np.zeros((N_clusters, Nbins), dtype=np.int64)
+    for c, bg in enumerate(cluster_backgrounds):
+        R = bg[4]
+        in_bin = (R[:, None] > bin_limits[:, 0]) & (R[:, None] < bin_limits[:, 1])
+        cluster_bin_counts[c] = in_bin.sum(axis=0)
+    bin_counts = cluster_bin_counts.sum(axis=0)
     total_gals = bin_counts.sum()
     print("Total galaxies available per bin:")
     print(bin_counts)
     print()
 
-    # --- boost factors ---
+    # --- random catalog for boost denominator (computed once, high precision) ---
     max_radius, min_radius = np.max(bin_limits), np.min(bin_limits)
     area = np.pi * (max_radius**2 - min_radius**2)
     density = total_gals / area
@@ -290,9 +313,8 @@ def stacked_signal(cluster_backgrounds, bin_limits, Nboot=200):
     RRy = np.random.uniform(-max_radius, max_radius, RR_n)
     RR = np.hypot(RRx, RRy)
     RR_bins = ((RR[:, None] > bin_limits[:, 0]) & (RR[:, None] < bin_limits[:, 1])).sum(axis=0)
-    boosts = bin_counts / RR_bins
 
-    # --- precompute per-cluster per-bin weighted sums ---
+    # --- precompute per-cluster per-bin weighted sums for ΔΣ ---
     # Decompose the signal so that bootstrap resampling is a pure array operation:
     # ΔΣ_boot = Σ_c(sums_t[c]) / Σ_c(sums_K[c])  for resampled cluster indices c
     sums_t = np.zeros((N_clusters, Nbins))
@@ -307,21 +329,29 @@ def stacked_signal(cluster_backgrounds, bin_limits, Nboot=200):
         sums_x[c] = np.dot(ex * w / sig,    in_bin)
         sums_K[c] = np.dot((1 + M) * w_eff, in_bin)
 
-    # --- vectorised bootstrap: no Python loop over Nboot ---
-    resample = np.random.randint(0, N_clusters, (Nboot, N_clusters))  # (Nboot, N_clusters)
-    boot_t = sums_t[resample].sum(axis=1)  # (Nboot, Nbins)
-    boot_x = sums_x[resample].sum(axis=1)
-    boot_K = sums_K[resample].sum(axis=1)
+    # --- joint cluster bootstrap: same resample indices for boost and ΔΣ ---
+    resample = np.random.randint(0, N_clusters, (Nboot, N_clusters))     # (Nboot, N_clusters)
+    boot_t           = sums_t[resample].sum(axis=1)                       # (Nboot, Nbins)
+    boot_x           = sums_x[resample].sum(axis=1)
+    boot_K           = sums_K[resample].sum(axis=1)
+    boot_bin_counts  = cluster_bin_counts[resample].sum(axis=1)           # (Nboot, Nbins)
 
-    Delta_Sigmas = boot_t / boot_K
-    Delta_Xigmas = boot_x / boot_K
+    boost_boot       = boot_bin_counts / RR_bins                          # (Nboot, Nbins)
+    Delta_Sigmas_raw = boot_t / boot_K
+    Delta_Xigmas_raw = boot_x / boot_K
 
-    sigmas = Delta_Sigmas.mean(axis=0)
-    xigmas = Delta_Xigmas.mean(axis=0)
-    sigmas_cov = np.cov(Delta_Sigmas.T)
-    xigmas_cov = np.cov(Delta_Xigmas.T)
+    # Boost-corrected per bootstrap iteration (jointly drawn).
+    Delta_Sigmas_corr = boost_boot * Delta_Sigmas_raw
+    Delta_Xigmas_corr = boost_boot * Delta_Xigmas_raw
 
-    return sigmas, boosts, sigmas_cov, xigmas, xigmas_cov
+    sigmas      = Delta_Sigmas_corr.mean(axis=0)
+    xigmas      = Delta_Xigmas_corr.mean(axis=0)
+    sigmas_cov  = np.cov(Delta_Sigmas_corr.T)
+    xigmas_cov  = np.cov(Delta_Xigmas_corr.T)
+    boosts      = boost_boot.mean(axis=0)
+    boosts_cov  = np.cov(boost_boot.T)
+
+    return sigmas, boosts, boosts_cov, sigmas_cov, xigmas, xigmas_cov
 
 def single_cluster(cluster_backgrounds, bin_limits, Nboot=500):
     """
