@@ -224,6 +224,121 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     
     return result#, background_region
 
+def bootstrap_signal(stake, bin_limits, Nboot=200, valid_frac=0.9):
+    """
+    Galaxy-level bootstrap mean and covariance of the signal() estimator.
+
+    Resamples galaxies with replacement ``Nboot`` times, computes signal()
+    on each draw, and returns the mean and covariance over valid draws.
+    No boost correction is applied — the estimator is identical to signal()
+    and is consistent with models that predict plain NFW ΔΣ.
+
+    Failure is handled per bin: a bin is valid when it yields a finite
+    estimate in at least ``valid_frac`` of the draws and its bootstrap
+    variance is positive.  Failed bins are returned as NaN in both the
+    mean vector and the corresponding covariance rows/columns; the
+    covariance of the valid bins is computed jointly over the draws that
+    are finite in all valid bins.
+
+    Parameters
+    ----------
+    stake : (6, N_gal) ndarray
+        Rows: (0) Σ_crit, (1) e_t, (2) e_x, (3) W, (4) R [Mpc], (5) M.
+    bin_limits : (Nbins, 2) array
+        Per-bin (low, high) radial edges in Mpc.
+    Nboot : int
+        Number of galaxy-level bootstrap resamples.
+    valid_frac : float
+        Minimum fraction of draws in which a bin must be finite to count
+        as valid.  At 0.9 a bin needs roughly ≥3 galaxies.
+
+    Returns
+    -------
+    sigmas : (Nbins,)
+        Bootstrap mean of ΔΣ_t.  NaN in failed bins.
+    sigmas_cov : (Nbins, Nbins)
+        Bootstrap covariance of ΔΣ_t.  NaN rows/columns for failed bins.
+    xigmas : (Nbins,)
+        Bootstrap mean of ΔΣ_× (cross-shear, should be ≈ 0).
+    xigmas_cov : (Nbins, Nbins)
+        Bootstrap covariance of ΔΣ_×.
+    """
+    bin_limits = np.asarray(bin_limits)
+    Nbins = len(bin_limits)
+
+    sig, et, ex, w, R, M = (stake[0], stake[1], stake[2],
+                             stake[3], stake[4], stake[5])
+    N_gal = R.size
+
+    # Pre-compute per-galaxy per-bin contributions (sparse inner bins stay 0)
+    in_bin = (R[:, None] > bin_limits[:, 0]) & (R[:, None] < bin_limits[:, 1])
+    t_g = (et * w / sig).astype(np.float32)
+    x_g = (ex * w / sig).astype(np.float32)
+    K_g = ((1.0 + M) * w / sig ** 2).astype(np.float32)
+
+    # Galaxy-level bootstrap
+    resample = np.random.randint(0, N_gal, (Nboot, N_gal))
+
+    boot_t = np.full((Nboot, Nbins), np.nan, dtype=np.float64)
+    boot_x = np.full((Nboot, Nbins), np.nan, dtype=np.float64)
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        for b, (r_lo, r_hi) in enumerate(bin_limits):
+            in_b = (R > r_lo) & (R < r_hi)
+            if not in_b.any():
+                continue
+            t_b = (t_g * in_b).astype(np.float32)
+            x_b = (x_g * in_b).astype(np.float32)
+            K_b = (K_g * in_b).astype(np.float32)
+
+            num_t   = t_b[resample].sum(axis=-1)
+            num_x   = x_b[resample].sum(axis=-1)
+            denom_K = K_b[resample].sum(axis=-1)
+
+            boot_t[:, b] = num_t / denom_K
+            boot_x[:, b] = num_x / denom_K
+
+    sigmas     = np.full(Nbins, np.nan)
+    xigmas     = np.full(Nbins, np.nan)
+    sigmas_cov = np.full((Nbins, Nbins), np.nan)
+    xigmas_cov = np.full((Nbins, Nbins), np.nan)
+
+    good = ((np.isfinite(boot_t).mean(axis=0) >= valid_frac)
+            & (np.isfinite(boot_x).mean(axis=0) >= valid_frac))
+    if not good.any():
+        return sigmas, sigmas_cov, xigmas, xigmas_cov
+
+    draws_ok = (np.all(np.isfinite(boot_t[:, good]), axis=1)
+                & np.all(np.isfinite(boot_x[:, good]), axis=1))
+    if draws_ok.sum() < 2:
+        return sigmas, sigmas_cov, xigmas, xigmas_cov
+
+    bt = boot_t[np.ix_(draws_ok, good)]
+    bx = boot_x[np.ix_(draws_ok, good)]
+    cov_t = np.atleast_2d(np.cov(bt.T))
+    cov_x = np.atleast_2d(np.cov(bx.T))
+
+    # Degenerate bins (zero bootstrap variance, e.g. a single repeated
+    # galaxy) cannot support a Gaussian likelihood — mark them failed too.
+    pos_var = np.diag(cov_t) > 0
+    if not pos_var.all():
+        good_idx = np.flatnonzero(good)[pos_var]
+        good = np.zeros(Nbins, dtype=bool)
+        good[good_idx] = True
+        bt    = bt[:, pos_var]
+        bx    = bx[:, pos_var]
+        cov_t = np.atleast_2d(cov_t[np.ix_(pos_var, pos_var)])
+        cov_x = np.atleast_2d(cov_x[np.ix_(pos_var, pos_var)])
+        if not good.any():
+            return sigmas, sigmas_cov, xigmas, xigmas_cov
+
+    sigmas[good] = bt.mean(axis=0)
+    xigmas[good] = bx.mean(axis=0)
+    sigmas_cov[np.ix_(good, good)] = cov_t
+    xigmas_cov[np.ix_(good, good)] = cov_x
+    return sigmas, sigmas_cov, xigmas, xigmas_cov
+
+
 def signal(stake, bin_limits):
   """
   cluster_backgrounds = a list of ndarrays, each containing cluster background galaxies for lensing.
@@ -300,9 +415,6 @@ def stacked_signal(cluster_backgrounds, bin_limits, Nboot=200):
         cluster_bin_counts[c] = in_bin.sum(axis=0)
     bin_counts = cluster_bin_counts.sum(axis=0)
     total_gals = bin_counts.sum()
-    print("Total galaxies available per bin:")
-    print(bin_counts)
-    print()
 
     # --- random catalog for boost denominator (computed once, high precision) ---
     max_radius, min_radius = np.max(bin_limits), np.min(bin_limits)
@@ -312,7 +424,13 @@ def stacked_signal(cluster_backgrounds, bin_limits, Nboot=200):
     RRx = np.random.uniform(-max_radius, max_radius, RR_n)
     RRy = np.random.uniform(-max_radius, max_radius, RR_n)
     RR = np.hypot(RRx, RRy)
-    RR_bins = ((RR[:, None] > bin_limits[:, 0]) & (RR[:, None] < bin_limits[:, 1])).sum(axis=0)
+    RR_bins = ((RR[:, None] > bin_limits[:, 0])
+               & (RR[:, None] < bin_limits[:, 1])).sum(axis=0).astype(float)
+    # Guard against bins where the random catalog happens to have zero hits
+    # (rare for large stacks, but possible for small / inner bins of small
+    # stacks).  Without this, boost = N_obs / 0 propagates NaN through
+    # sigmas downstream.
+    RR_bins[RR_bins == 0] = 1.0
 
     # --- precompute per-cluster per-bin weighted sums for ΔΣ ---
     # Decompose the signal so that bootstrap resampling is a pure array operation:
@@ -337,19 +455,33 @@ def stacked_signal(cluster_backgrounds, bin_limits, Nboot=200):
     boot_bin_counts  = cluster_bin_counts[resample].sum(axis=1)           # (Nboot, Nbins)
 
     boost_boot       = boot_bin_counts / RR_bins                          # (Nboot, Nbins)
-    Delta_Sigmas_raw = boot_t / boot_K
-    Delta_Xigmas_raw = boot_x / boot_K
+    with np.errstate(divide='ignore', invalid='ignore'):
+        Delta_Sigmas_raw = boot_t / boot_K
+        Delta_Xigmas_raw = boot_x / boot_K
 
     # Boost-corrected per bootstrap iteration (jointly drawn).
     Delta_Sigmas_corr = boost_boot * Delta_Sigmas_raw
     Delta_Xigmas_corr = boost_boot * Delta_Xigmas_raw
 
-    sigmas      = Delta_Sigmas_corr.mean(axis=0)
-    xigmas      = Delta_Xigmas_corr.mean(axis=0)
-    sigmas_cov  = np.cov(Delta_Sigmas_corr.T)
-    xigmas_cov  = np.cov(Delta_Xigmas_corr.T)
-    boosts      = boost_boot.mean(axis=0)
-    boosts_cov  = np.cov(boost_boot.T)
+    # Drop iterations that produced any NaN/Inf in ΔΣ or ΔΣ_× (e.g. small
+    # stacks where some bootstrap draw lands every cluster's contribution
+    # in the empty side of an inner bin → boot_K = 0 → 0/0).  This mirrors
+    # the single_cluster safeguard and keeps the covariance internally
+    # consistent across bins.
+    valid = (np.all(np.isfinite(Delta_Sigmas_corr), axis=1)
+             & np.all(np.isfinite(Delta_Xigmas_corr), axis=1))
+    if valid.sum() < 2:
+        sigmas     = np.full(Nbins, np.nan)
+        xigmas     = np.full(Nbins, np.nan)
+        sigmas_cov = np.full((Nbins, Nbins), np.nan)
+        xigmas_cov = np.full((Nbins, Nbins), np.nan)
+    else:
+        sigmas     = Delta_Sigmas_corr[valid].mean(axis=0)
+        xigmas     = Delta_Xigmas_corr[valid].mean(axis=0)
+        sigmas_cov = np.cov(Delta_Sigmas_corr[valid].T)
+        xigmas_cov = np.cov(Delta_Xigmas_corr[valid].T)
+    boosts     = boost_boot.mean(axis=0)
+    boosts_cov = np.cov(boost_boot.T)
 
     return sigmas, boosts, boosts_cov, sigmas_cov, xigmas, xigmas_cov
 
@@ -403,10 +535,6 @@ def single_cluster(cluster_backgrounds, bin_limits, Nboot=500):
     in_bin = (R[:, None] > bin_limits[:, 0]) & (R[:, None] < bin_limits[:, 1])
     bin_counts = in_bin.sum(axis=0)
     total_gals = int(bin_counts.sum())
-    print("Total galaxies available per bin:")
-    print(bin_counts.tolist())
-    print()
-
     # Random catalog for the boost denominator: uniform in the bounding
     # square, density matched to the data so a flat distribution gives B≈1.
     max_radius = float(np.max(bin_limits))
@@ -457,8 +585,7 @@ def single_cluster(cluster_backgrounds, bin_limits, Nboot=500):
             Delta_Xigmas_corr[:, b] = boost_boot[:, b] * DX_raw
 
     # Drop bootstrap iterations with any NaN/Inf in DS or DX so the
-    # covariance is internally consistent across bins.  Boost is always
-    # finite (counts / fixed RR), so its covariance uses the full set.
+    # covariance is internally consistent across bins.
     valid = (np.all(np.isfinite(Delta_Sigmas_corr), axis=1)
              & np.all(np.isfinite(Delta_Xigmas_corr), axis=1))
     if valid.sum() < 2:
@@ -471,8 +598,30 @@ def single_cluster(cluster_backgrounds, bin_limits, Nboot=500):
         xigmas     = Delta_Xigmas_corr[valid].mean(axis=0)
         sigmas_cov = np.cov(Delta_Sigmas_corr[valid].T)
         xigmas_cov = np.cov(Delta_Xigmas_corr[valid].T)
-    boosts     = boost_boot.mean(axis=0)
-    boosts_cov = np.cov(boost_boot.T)
+
+    # Boost stats with per-iteration zero-count masking: a bootstrap row
+    # that drew no galaxies in bin b carries no information about that
+    # bin's boost, so it is excluded from bin b's mean and from any
+    # covariance entry that touches bin b.  Pairwise valid sets keep as
+    # much signal as possible.  Empty original bins fall through with
+    # zeros (the pre-fill).
+    boost_mask = boost_boot > 0
+    boosts = np.zeros(Nbins)
+    for b in range(Nbins):
+        sel = boost_mask[:, b]
+        if sel.any():
+            boosts[b] = float(boost_boot[sel, b].mean())
+    boosts_cov = np.zeros((Nbins, Nbins))
+    for i in range(Nbins):
+        for j in range(i, Nbins):
+            both = boost_mask[:, i] & boost_mask[:, j]
+            if both.sum() < 2:
+                continue
+            cov_ij = float(np.cov(boost_boot[both, i],
+                                  boost_boot[both, j], ddof=1)[0, 1])
+            boosts_cov[i, j] = cov_ij
+            if i != j:
+                boosts_cov[j, i] = cov_ij
 
     return sigmas, boosts, boosts_cov, sigmas_cov, xigmas, xigmas_cov
 

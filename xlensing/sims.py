@@ -356,7 +356,7 @@ def triaxial_NFW_wcs_cluster_shear(
     return gammat * np.exp(2j * phi_eff)
 
 
-def apply_triaxial_NFW_shear_region(cluster, galaxies):
+def apply_triaxial_NFW_shear_region(cluster, galaxies, response=None):
     """Apply a triaxial NFW shear over a catalog of galaxies.
 
     The 3D triaxial ellipsoid is projected onto the sky via
@@ -379,6 +379,16 @@ def apply_triaxial_NFW_shear_region(cluster, galaxies):
           PA to align the ellipsoid frame with RA/Dec (default 0).
     galaxies : ndarray (Ngal, >=5)
         Galaxy catalog rows: RA, DEC, z, e1, e2, ...
+    response : ndarray (Ngal,) or None
+        Per-galaxy shear response.  When given, each galaxy's injected
+        shear is scaled by its response before being added to the
+        intrinsic ellipticity (metacal convention: the measured
+        ellipticity responds to shear as de = R*dgamma).  A catalog
+        carrying metacal response columns must be sheared this way, or a
+        response-corrected estimator will overestimate the signal by
+        1/<R>.  Assumes an isotropic diagonal response (R11 = R22,
+        off-diagonal 0), for which the tangential response equals R at
+        every position angle.  Default None: unit response.
 
     Returns
     -------
@@ -420,6 +430,9 @@ def apply_triaxial_NFW_shear_region(cluster, galaxies):
         amp    = rs * NFW_delta_c(cluster[4]) * rhoM(z_lens)
         x_arr  = np.maximum(r_eff, 1e-4) / rs
         gammat = amp / sigcrit * _gNFW_vec(x_arr)
+
+        if response is not None:
+            gammat = gammat * np.asarray(response)[bg_mask]
 
         gammas[bg_mask] = gammat * np.exp(2j * phi_eff)
 
