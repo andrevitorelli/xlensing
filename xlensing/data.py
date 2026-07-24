@@ -63,15 +63,22 @@ def annular_area(rad1,rad2):
 
 def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     """
-    Gets the lensing signal given a cluster and a lensfit source galaxy catalogue within a 
-    radius from which we will get galaxies to measure tangential and cross 
+    Gets the lensing signal given a cluster and a lensfit source galaxy catalogue within a
+    radius from which we will get galaxies to measure tangential and cross
     ellipticities, and the critical lensing density.
-    
+
+    ``sources`` must already be restricted to background galaxies by the
+    caller — this function applies no redshift-based selection of its own
+    (it previously hardcoded ``z_s > 1.1*z_cl + 0.1``; that cut has been
+    removed so callers can implement and compare their own background
+    selection strategies). Source redshift is still required, since it
+    feeds the critical surface density calculation.
+
     Args:
     ----
-    
+
       cluster : a 3-tuple with cluster RA, DEC (in radians) and redshift.
-        
+
       sources : a 7-tuple with:
 
       - RA, DEC of galaxy in radians
@@ -79,12 +86,12 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
       - E1, E2: galaxy ellipticity measurements in the CFHT coordinate system.
       - W: Ellipticity measurement weights, given by 1/(intrinsic_ellipticity^2 + ellipticity_uncertainty^2)
       - M: Estimative for the multiplicative bias of the ellipticity measurement.
-      
+
     Returns
     -------
-    
+
       result: a dict of arrays with:
-      
+
       - Critical density: the \\Sigma_{crit}, for weak lensing (N values)
       - Tangential Shear: e_t (N values)
       - Cross Shear: e_x (N values)
@@ -92,25 +99,21 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
       - Polar Angle: the azimuthal angle for objects in the polar coord. sys. (N values)
       - Weights: the Weights just as from the input #TODO calculate weights here if needed
       - Mult Bias: the multiplicative bias from above
-      
-    """    
-    
+
+    """
+
     #convert input to np arrays
     cluster = np.array(list(cluster))
     source = np.array(list(sources)).T
-    
+
     #angular diameters
     cluster_DA = cosmo.DA(0,cluster[2])
     angular_radius = radius/cluster_DA
-    
+
     #select cluster area
     polar_background = equatorial_to_polar(cluster[0],cluster[1],source[:,0],source[:,1])
     region_mask = polar_background['sep'] <  angular_radius
-    region = source[region_mask]
-    
-    #select galaxy backgrounds
-    background_condition = (region[:,2]> 1.1*cluster[2] +.1)   #this is contentious and should be changed
-    background_region = region[background_condition,:]
+    background_region = source[region_mask]
 
     #critical lensing density and polar position of sources/clusters
     sigs = sigmacrit(cluster[2],background_region[:,2])/1e12 #msun/pc^2 is better than msun/mpc^2 for numerical reasons
@@ -123,8 +126,8 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     #polar ellipticities
     et = -background_region[:,3]*np.cos(2*theta) - background_region[:,4]*np.sin(2*theta)
     ex = -background_region[:,3]*np.sin(2*theta) + background_region[:,4]*np.cos(2*theta)
-    
-    
+
+
     result = {'Critical Density': sigs,
               'Tangential Shear': et,
               'Cross Shear': ex,
@@ -133,7 +136,7 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
               'Weights': background_region[:,5],
               'Mult. Bias': background_region[:,6],
               'Count': len(background_region)}
-    
+
     return result
 
 def tangential_response(R11, R12, R21, R22,phi):
@@ -142,15 +145,22 @@ def tangential_response(R11, R12, R21, R22,phi):
 
 def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     """
-    Gets the lensing signal given a cluster and a source galaxy catalogue within a 
-    radius from which we will get galaxies to measure tangential and cross 
+    Gets the lensing signal given a cluster and a source galaxy catalogue within a
+    radius from which we will get galaxies to measure tangential and cross
     ellipticities, and the critical lensing density.
-    
+
+    ``sources`` must already be restricted to background galaxies by the
+    caller — this function applies no redshift-based selection of its own
+    (it previously hardcoded ``z_s > 1.1*z_cl + 0.2``; that cut has been
+    removed so callers can implement and compare their own background
+    selection strategies). Source redshift is still required, since it
+    feeds the critical surface density calculation.
+
     Args:
     ----
-    
+
     cluster = a 3-tuple with cluster RA, DEC (in radians) and redshift.
-        
+
     sources = a 10-tuple with arrays of:
 
     - 0: RA and
@@ -190,11 +200,7 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     
     #select cluster area
     region_mask = equatorial_to_polar(cluster[0],cluster[1],source[:,0],source[:,1])['sep']<  angular_radius
-    region = source[region_mask]
-    
-    #select galaxy backgrounds
-    background_condition = (region[:,2]> 1.1*cluster[2] +0.2)   #this is contentious and should be changed
-    background_region = region[background_condition,:]
+    background_region = source[region_mask]
 
     #critical lensing density and polar position of sources/clusters
     sigs = sigmacrit(cluster[2],background_region[:,2])/1e12 #msun/pc^2 is better than msun/mpc^2 for numerical reasons

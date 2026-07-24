@@ -39,7 +39,7 @@ The six modules form a pipeline from raw catalogs to fitted parameters:
 - All angles are in **radians**.
 - Masses are in **M☉**, radii/distances in **Mpc**.
 - ΔΣ is returned in **M☉/pc²** (divided by 1e12 internally for numerical stability).
-- Background galaxy selection cuts are hardcoded in `data.py`: `z_source > 1.1 * z_cluster + 0.1` (lensfit) or `+ 0.2` (metacal).
+- Background galaxy selection is the caller's responsibility. `lensfit_cluster_lensing`/`metacal_cluster_lensing` apply no redshift-based filtering of their own — `sources` must already be restricted to background galaxies before the call (source redshift is still consumed, for the critical surface density). This used to be a hardcoded cut inside `data.py` (`z_source > 1.1 * z_cluster + 0.1`/`+ 0.2`); it was removed so callers can implement and compare their own background selection strategies.
 - The stacked signal array layout expected by `signal()` / `stacked_signal()` / `single_cluster()` is row-indexed: `[0]` Σ_crit, `[1]` e_t, `[2]` e_x, `[3]` W, `[4]` R, `[5]` M.
 
 ## Notebooks

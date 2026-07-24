@@ -211,15 +211,16 @@ def test_lensfit_radial_distance_positive(lensfit_result):
     assert np.all(lensfit_result['Radial Distance'] > 0)
 
 
-def test_lensfit_foreground_excluded():
-    # Mix foreground + background sources; only background should be counted.
+def test_lensfit_applies_no_redshift_filtering():
+    # lensfit_cluster_lensing no longer filters by redshift internally —
+    # every source inside the angular radius is used regardless of z.
+    # Background selection is the caller's responsibility.
     cluster = (0.0, 0.0, 0.5)
     rng = np.random.default_rng(20)
     N_fg, N_bg = 100, 50
     N = N_fg + N_bg
     ra  = rng.uniform(-0.003, 0.003, N)
     dec = rng.uniform(0.001, 0.003, N)
-    # first N_fg are foreground (z < cut), last N_bg are background (z >> cut)
     z_fg = rng.uniform(0.1, 0.4, N_fg)
     z_bg = rng.uniform(0.8, 1.2, N_bg)
     z_s  = np.concatenate([z_fg, z_bg])
@@ -229,9 +230,7 @@ def test_lensfit_foreground_excluded():
     M    = np.zeros(N)
     sources = (ra, dec, z_s, e1, e2, W, M)
     result = d.lensfit_cluster_lensing(cluster, sources, radius=10.0)
-    # no foreground galaxy should pass z_s > 1.1*0.5 + 0.1 = 0.65
-    assert result['Count'] == N_bg
-    assert np.all(result['Critical Density'] > 0)
+    assert result['Count'] == N
 
 
 # ---------------------------------------------------------------------------
@@ -269,8 +268,10 @@ def test_metacal_radial_distance_positive(metacal_result):
     assert np.all(metacal_result['Radial Distance'] > 0)
 
 
-def test_metacal_foreground_excluded():
-    # Mix foreground + background; foreground must not be counted.
+def test_metacal_applies_no_redshift_filtering():
+    # metacal_cluster_lensing no longer filters by redshift internally —
+    # every source inside the angular radius is used regardless of z.
+    # Background selection is the caller's responsibility.
     cluster = (0.0, 0.0, 0.5)
     rng = np.random.default_rng(21)
     N_fg, N_bg = 100, 50
@@ -286,9 +287,7 @@ def test_metacal_foreground_excluded():
     R11, R12, R21, R22 = (np.full(N, 0.7), np.zeros(N), np.zeros(N), np.full(N, 0.7))
     sources = (ra, dec, z_s, e1, e2, W, R11, R12, R21, R22)
     result = d.metacal_cluster_lensing(cluster, sources, radius=10.0)
-    # cut: z_s > 1.1*0.5 + 0.2 = 0.75; all z_bg > 0.9 pass, all z_fg < 0.4 fail
-    assert result['Count'] == N_bg
-    assert np.all(result['Critical Density'] > 0)
+    assert result['Count'] == N
 
 
 # ---------------------------------------------------------------------------
