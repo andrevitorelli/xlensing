@@ -439,3 +439,108 @@ def test_single_cluster_empty_bin_handled(capsys):
     # second bin should be nan; first should be finite
     assert np.isfinite(sigmas[0])
     assert np.isnan(sigmas[1])
+
+
+# ---------------------------------------------------------------------------
+# bootstrap_signal — sigma_e variance floor
+# ---------------------------------------------------------------------------
+
+def _two_bin_stake_with_degenerate_inner(inner_edges, outer_edges,
+                                         n_outer=300, rng=None):
+    """A stake with 2 near-identical galaxies in the inner bin (degenerate,
+    near-zero bootstrap variance) and n_outer well-scattered galaxies in
+    the outer bin (ordinary variance)."""
+    if rng is None:
+        rng = np.random.default_rng(0)
+    inner_R = np.array([np.mean(inner_edges), np.mean(inner_edges) + 1e-4])
+    inner_et = np.array([0.0500, 0.0501])
+    inner_sig = np.array([2.0, 2.0])
+    inner_W = np.array([1.0, 1.0])
+    inner_M = np.array([0.0, 0.0])
+
+    outer_R = rng.uniform(outer_edges[0] + 1e-3, outer_edges[1] - 1e-3, n_outer)
+    outer_et = rng.uniform(-0.2, 0.2, n_outer)
+    outer_sig = rng.uniform(1.0, 5.0, n_outer)
+    outer_W = rng.uniform(0.5, 2.0, n_outer)
+    outer_M = np.zeros(n_outer)
+
+    R   = np.concatenate([inner_R, outer_R])
+    et  = np.concatenate([inner_et, outer_et])
+    ex  = np.zeros_like(et)
+    sig = np.concatenate([inner_sig, outer_sig])
+    W   = np.concatenate([inner_W, outer_W])
+    M   = np.concatenate([inner_M, outer_M])
+    return np.vstack([sig, et, ex, W, R, M])
+
+
+def _bin_K_sum(stake, r_lo, r_hi):
+    """Reference (non-bootstrapped) sum((1+M)*W/Sigma_crit**2) over a bin —
+    the same quantity the sigma_e floor divides into."""
+    sig, et, ex, w, R, M = stake
+    in_b = (R > r_lo) & (R < r_hi)
+    return float(((1.0 + M[in_b]) * w[in_b] / sig[in_b] ** 2).sum())
+
+
+def test_bootstrap_signal_floors_degenerate_inner_bin():
+    bins = np.array([[0.1, 0.3], [0.3, 2.0]])
+    stake = _two_bin_stake_with_degenerate_inner((0.1, 0.3), (0.3, 2.0))
+    sigma_e = 0.27
+    expected_floor = sigma_e ** 2 / _bin_K_sum(stake, 0.1, 0.3)
+
+    np.random.seed(42)
+    sigmas0, cov_t0, _, _ = d.bootstrap_signal(stake, bins, Nboot=500,
+                                               valid_frac=0.5)
+    np.random.seed(42)
+    sigmas1, cov_t1, _, _ = d.bootstrap_signal(stake, bins, Nboot=500,
+                                               valid_frac=0.5, sigma_e=sigma_e,
+                                               floor_rmax=0.3)
+
+    assert np.isfinite(cov_t0[0, 0])
+    # Unfloored: the two near-identical galaxies barely move the ratio
+    # estimator across resamples -> implausibly tiny variance.
+    assert cov_t0[0, 0] < expected_floor
+    # Floored: raised to (at least) the shot-noise-only lower bound.
+    assert cov_t1[0, 0] >= expected_floor * (1 - 1e-9)
+    # The well-sampled outer bin is untouched by the floor (identical RNG
+    # sequence between the two calls -> should match exactly).
+    np.testing.assert_allclose(cov_t0[1, 1], cov_t1[1, 1])
+
+
+def test_bootstrap_signal_floor_rmax_restricts_to_inner_bins():
+    bins = np.array([[0.1, 0.3], [0.6, 1.0]])
+    rng = np.random.default_rng(1)
+    # Both bins degenerate (2 near-identical galaxies each) -- only the
+    # inner one should get floored when floor_rmax=0.5.
+    inner_R  = np.array([0.2, 0.2001])
+    outer_R  = np.array([0.8, 0.8001])
+    R   = np.concatenate([inner_R, outer_R])
+    et  = np.array([0.05, 0.0501, 0.03, 0.0301])
+    ex  = np.zeros(4)
+    sig = np.full(4, 2.0)
+    W   = np.ones(4)
+    M   = np.zeros(4)
+    stake = np.vstack([sig, et, ex, W, R, M])
+
+    np.random.seed(7)
+    sigmas, cov_t, _, _ = d.bootstrap_signal(
+        stake, bins, Nboot=500, valid_frac=0.5,
+        sigma_e=0.27, floor_rmax=0.5,
+    )
+    inner_floor = 0.27 ** 2 / _bin_K_sum(stake, 0.1, 0.3)
+    outer_floor = 0.27 ** 2 / _bin_K_sum(stake, 0.6, 1.0)
+
+    assert np.isfinite(cov_t[0, 0]) and np.isfinite(cov_t[1, 1])
+    assert cov_t[0, 0] >= inner_floor * (1 - 1e-9)   # inner: floored
+    assert cov_t[1, 1] < outer_floor                 # outer: left degenerate
+
+
+def test_bootstrap_signal_no_sigma_e_unchanged():
+    bins = np.array([[0.1, 0.3], [0.3, 2.0]])
+    stake = _two_bin_stake_with_degenerate_inner((0.1, 0.3), (0.3, 2.0))
+    np.random.seed(3)
+    a = d.bootstrap_signal(stake, bins, Nboot=200, valid_frac=0.5)
+    np.random.seed(3)
+    b = d.bootstrap_signal(stake, bins, Nboot=200, valid_frac=0.5,
+                           sigma_e=None, floor_rmax=None)
+    for arr_a, arr_b in zip(a, b):
+        np.testing.assert_array_equal(np.nan_to_num(arr_a), np.nan_to_num(arr_b))

@@ -230,7 +230,8 @@ def metacal_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     
     return result#, background_region
 
-def bootstrap_signal(stake, bin_limits, Nboot=200, valid_frac=0.9):
+def bootstrap_signal(stake, bin_limits, Nboot=200, valid_frac=0.9,
+                     sigma_e=None, floor_rmax=None):
     """
     Galaxy-level bootstrap mean and covariance of the signal() estimator.
 
@@ -245,6 +246,36 @@ def bootstrap_signal(stake, bin_limits, Nboot=200, valid_frac=0.9):
     mean vector and the corresponding covariance rows/columns; the
     covariance of the valid bins is computed jointly over the draws that
     are finite in all valid bins.
+
+    With very few galaxies in a bin (typically the innermost, smallest-area
+    ones), the galaxy-level bootstrap can produce an implausibly tiny
+    variance by chance: if the handful of galaxies present happen to give
+    similar individual ΔΣ estimates, the weighted-ratio estimator barely
+    moves across resamples regardless of multiplicity, even though the
+    true shape-noise uncertainty is large. ``sigma_e`` (per-component
+    ellipticity dispersion) lets you floor each bin's variance at the
+    shot-noise-only lower bound implied by that bin's actual galaxies —
+    see the ``sigma_e``/``floor_rmax`` parameters below.
+
+    Parameters
+    ----------
+    sigma_e : float or None
+        Per-component galaxy ellipticity dispersion (shape noise). When
+        given, floors each bin's bootstrap variance (of both the
+        tangential and cross component) at
+        ``sigma_e**2 / sum((1+M) * W / Sigma_crit**2)`` — the variance of
+        the weighted-mean ΔΣ estimator if ellipticity scatter were the
+        only source of noise, computed from that bin's actual galaxies
+        (their per-galaxy weights and Sigma_crit, summed once over the
+        full — not bootstrap-resampled — set). Default ``None``: no
+        floor (legacy behaviour).
+    floor_rmax : float or None
+        Only apply the floor to bins whose lower edge is below this radius
+        [Mpc]. Only consulted when ``sigma_e`` is not None. Default
+        ``None``: floor every bin — harmless in practice since the floor
+        sits far below the bootstrap variance of any well-sampled bin, so
+        it only ever binds in the low-galaxy-count regime regardless of
+        radius.
 
     Parameters
     ----------
@@ -287,6 +318,7 @@ def bootstrap_signal(stake, bin_limits, Nboot=200, valid_frac=0.9):
 
     boot_t = np.full((Nboot, Nbins), np.nan, dtype=np.float64)
     boot_x = np.full((Nboot, Nbins), np.nan, dtype=np.float64)
+    full_K_sum = np.zeros(Nbins, dtype=np.float64)   # for the sigma_e floor
 
     with np.errstate(divide='ignore', invalid='ignore'):
         for b, (r_lo, r_hi) in enumerate(bin_limits):
@@ -296,6 +328,7 @@ def bootstrap_signal(stake, bin_limits, Nboot=200, valid_frac=0.9):
             t_b = (t_g * in_b).astype(np.float32)
             x_b = (x_g * in_b).astype(np.float32)
             K_b = (K_g * in_b).astype(np.float32)
+            full_K_sum[b] = float(K_b.sum())
 
             num_t   = t_b[resample].sum(axis=-1)
             num_x   = x_b[resample].sum(axis=-1)
@@ -323,6 +356,26 @@ def bootstrap_signal(stake, bin_limits, Nboot=200, valid_frac=0.9):
     bx = boot_x[np.ix_(draws_ok, good)]
     cov_t = np.atleast_2d(np.cov(bt.T))
     cov_x = np.atleast_2d(np.cov(bx.T))
+
+    # Shot-noise variance floor: with very few galaxies in a bin, the
+    # galaxy-level bootstrap above can land on an implausibly tiny variance
+    # by chance (see the sigma_e/floor_rmax docstring). Raise the diagonal
+    # to the shot-noise-only lower bound before the degenerate-bin check
+    # below, so a floored bin reads as "wide but valid" rather than
+    # "degenerate" (they are not the same failure mode: this galaxy set is
+    # real, just too small to trust its own bootstrap scatter).
+    if sigma_e is not None:
+        for local_idx, orig_b in enumerate(np.flatnonzero(good)):
+            if floor_rmax is not None and bin_limits[orig_b, 0] >= floor_rmax:
+                continue
+            Ksum = full_K_sum[orig_b]
+            if Ksum <= 0:
+                continue
+            var_floor = sigma_e ** 2 / Ksum
+            if cov_t[local_idx, local_idx] < var_floor:
+                cov_t[local_idx, local_idx] = var_floor
+            if cov_x[local_idx, local_idx] < var_floor:
+                cov_x[local_idx, local_idx] = var_floor
 
     # Degenerate bins (zero bootstrap variance, e.g. a single repeated
     # galaxy) cannot support a Gaussian likelihood — mark them failed too.
