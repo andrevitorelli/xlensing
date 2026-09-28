@@ -329,3 +329,30 @@ def test_NFW_Delta_Sigma_single_matches_array_row(cluster_array, radii):
             rtol=1e-12,
             err_msg=f"Mismatch at cluster index {i}",
         )
+
+
+# --- miscentering table (rebuilt 2026-09-28) -------------------------------------
+
+def test_miscentering_table_matches_hankel():
+    """Tabulated miscentred Delta Sigma vs an independent Hankel-transform
+    calculation (analytic projected-NFW Fourier transform x Gaussian offset kernel)."""
+    import numpy as np
+    from scipy.special import sici, jv
+    from xlensing.model import Delta_Sigma_NFW_off_x, SigX, SigBar
+    x = np.array([0.1, 0.5, 2.0])
+    for xi in (0.05, 0.47, 2.9):
+        q = np.concatenate([np.logspace(-8, -2, 5000), np.linspace(1e-2, 40 / xi, 300000)])
+        si, ci = sici(q)
+        integ = q * (np.sin(q) * (np.pi / 2 - si) - np.cos(q) * ci) * np.exp(-0.5 * (q * xi) ** 2)
+        h = np.array([np.trapezoid(integ * jv(2, q * xx), q) for xx in x])
+        tab = Delta_Sigma_NFW_off_x(x[None, :], np.array([xi]))[0]
+        assert np.max(np.abs(tab - h) / (SigBar(x) - SigX(x))) < 1e-3
+
+
+def test_miscentering_small_offset_is_centred():
+    """Below the grid, xi is clamped: the profile tends to the centred one (no extrapolation)."""
+    import numpy as np
+    from xlensing.model import Delta_Sigma_NFW_off_x, SigX, SigBar
+    x = np.array([0.2, 1.0, 5.0])
+    np.testing.assert_allclose(Delta_Sigma_NFW_off_x(x[None, :], np.array([1e-5]))[0],
+                               SigBar(x) - SigX(x), rtol=2e-3)

@@ -1,3 +1,4 @@
+import os
 # -*- coding: utf-8 -*-
 """
 Created on Mon May  4 21:50:50 2015
@@ -51,16 +52,28 @@ def SigBar(x):
 
 #load NFW miscentered profile
 resources = str(Path(__file__).parent)
-MscRadii = Table.read(resources+"/misc_NFW_radii.fits")
-Profs = Table.read(resources+"/misc_NFW_profiles.fits")
+# Miscentred-NFW Delta Sigma table (build: xlensing/build_miscentering_table.py).
+# Default: the 2026-09-28 table (xi = sigma_off/r_s from 1e-3 to 20).  Set
+# XLENSING_MISCENTERING_TABLE=legacy2020 to load the original 2020 table (xi =
+# 0.1-10), e.g. to reproduce older fits.
+_MISC_SUFFIX = "_legacy2020" if os.environ.get("XLENSING_MISCENTERING_TABLE", "") == "legacy2020" else ""
+MscRadii = Table.read(resources+f"/misc_NFW_radii{_MISC_SUFFIX}.fits")
+Profs = Table.read(resources+f"/misc_NFW_profiles{_MISC_SUFFIX}.fits")
 print("Lookup tables loaded!")
 spline = BSpline(MscRadii['col0'],Profs['col0'],Profs['col1'].T,s=0)
+_XI_MIN, _XI_MAX = float(np.min(Profs['col0'])), float(np.max(Profs['col0']))
 
 def Delta_Sigma_NFW_off_x(matrix, vector):
-    """Vectorized evaluation for (N×M matrix, N vector) pairs"""
+    """Vectorized evaluation for (N×M matrix, N vector) pairs.
+
+    xi (``vector``, sigma_off / r_s) is clamped to the tabulated range: the
+    spline must not extrapolate (below the 2020 table's xi = 0.1 it was off by
+    up to ~70% of the centred signal).  Below the new table's xi = 1e-3 the
+    miscentred profile is indistinguishable from the centred one at any radius
+    the pipeline uses."""
     N, M = matrix.shape
     x_flat = matrix.ravel()
-    y_flat = np.repeat(vector, M)
+    y_flat = np.repeat(np.clip(vector, _XI_MIN, _XI_MAX), M)
     z_flat = spline.ev(x_flat, y_flat)
     return z_flat.reshape(N, M)
 
