@@ -184,13 +184,17 @@ def test_apply_triaxial_spherical_limit():
     cluster_tri = [0., 0., 0.3, 1e14, 5.0, R, R, R, 0.0, 0.0]
 
     g_sph = apply_NFW_shear_region(cluster_sph, galaxies.copy())
-    g_tri = apply_triaxial_NFW_shear_region(cluster_tri, galaxies.copy())
-
+    # pseudo path: analytic, so exact agreement
+    g_tri = apply_triaxial_NFW_shear_region(cluster_tri, galaxies.copy(), model="pseudo")
     np.testing.assert_allclose(
         g_sph[:, 3] + 1j * g_sph[:, 4],
         g_tri[:, 3] + 1j * g_tri[:, 4],
         rtol=1e-4,
     )
+    # exact path: tabulated shear, agreement to the table's ~5e-4 precision
+    g_ex = apply_triaxial_NFW_shear_region(cluster_tri, galaxies.copy())
+    e_s, e_x = g_sph[:, 3] + 1j * g_sph[:, 4], g_ex[:, 3] + 1j * g_ex[:, 4]
+    assert np.max(np.abs(e_x - e_s)) / np.max(np.abs(e_s)) < 2e-3
 
 
 def test_apply_triaxial_with_pa_offset():
@@ -203,3 +207,49 @@ def test_apply_triaxial_with_pa_offset():
     np.testing.assert_allclose(
         result_0[:, 3:5], result_pi[:, 3:5], rtol=1e-10
     )
+
+
+# --- exact triaxial-NFW shear (xlensing.triaxial, 2026-09-28) -------------------
+
+def test_exact_triaxial_round_limit_matches_spherical():
+    """b = c = a must reproduce the spherical shear (old pseudo path) to table precision."""
+    import numpy as np
+    from xlensing.sims import apply_triaxial_NFW_shear_region, make_simple_random_cat, r_vir
+    gal = make_simple_random_cat(30, 0.003, (0.8, 2.0), 0.0, seed=4).T
+    z, M, c = 0.4, 2e14, 4.0
+    a = r_vir(z, M)
+    cl = [0, 0, z, M, c, a, a, a, 0.3, 0.7]
+    old = apply_triaxial_NFW_shear_region(cl, gal.copy(), model="pseudo")
+    new = apply_triaxial_NFW_shear_region(cl, gal.copy())
+    bg = gal[:, 2] > z
+    e_o, e_n = old[bg, 3] + 1j * old[bg, 4], new[bg, 3] + 1j * new[bg, 4]
+    assert np.max(np.abs(e_n - e_o)) / np.max(np.abs(e_o)) < 2e-3
+
+
+def test_exact_triaxial_circle_identity():
+    """Azimuthal mean tangential shear = kbar(<R) - k(R) for any mass distribution."""
+    import numpy as np
+    import xlensing.triaxial as T
+    q = 0.5
+    for R in (0.2, 1.0, 3.0):
+        th = np.linspace(0, 2 * np.pi, 361)[:-1]
+        x, y = R * np.cos(th), R * np.sin(th)
+        g1, g2, _ = T._shear_grid(q, x, y)
+        gt = np.mean(-(g1 * np.cos(2 * th) + g2 * np.sin(2 * th)))
+        rr = np.linspace(0, R, 401)[1:] - R / 800
+        RR, TT = np.meshgrid(rr, np.linspace(0, 2 * np.pi, 181)[:-1])
+        xi = np.sqrt((RR * np.cos(TT)) ** 2 + (RR * np.sin(TT)) ** 2 / q ** 2)
+        kin = np.sum(T._sig(xi) * RR) * (R / 400) * (2 * np.pi / 180) / (np.pi * R ** 2)
+        kring = np.mean(T._sig(np.sqrt(x ** 2 + y ** 2 / q ** 2)))
+        assert abs(gt / (kin - kring) - 1) < 2e-3
+
+
+def test_exact_triaxial_projection_conserves_mass():
+    """det(M) * n^T Q n = det(Q) = 1: the projected mass is orientation independent."""
+    import numpy as np
+    from xlensing.triaxial import projected_ellipse
+    rng = np.random.default_rng(0)
+    for _ in range(20):
+        axes = np.sort(rng.uniform(0.3, 1.0, 3))[::-1]
+        lam1, lam2, _, nQn = projected_ellipse(axes, np.arccos(rng.uniform()), rng.uniform(0, 2 * np.pi))
+        assert abs(lam1 * lam2 * nQn - 1) < 1e-10

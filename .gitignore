@@ -127,3 +127,4 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+xlensing/triaxial_nfw_shear_table.npz

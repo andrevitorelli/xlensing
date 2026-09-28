@@ -356,7 +356,7 @@ def triaxial_NFW_wcs_cluster_shear(
     return gammat * np.exp(2j * phi_eff)
 
 
-def apply_triaxial_NFW_shear_region(cluster, galaxies, response=None):
+def apply_triaxial_NFW_shear_region(cluster, galaxies, response=None, model="exact"):
     """Apply a triaxial NFW shear over a catalog of galaxies.
 
     The 3D triaxial ellipsoid is projected onto the sky via
@@ -399,6 +399,18 @@ def apply_triaxial_NFW_shear_region(cluster, galaxies, response=None):
     theta_los, phi_los = cluster[8], cluster[9]
     pa_offset          = cluster[10] if len(cluster) > 10 else 0.0
 
+    # model="exact" (default since 2026-09-28): the true lensing of the projected
+    # triaxial NFW (xlensing.triaxial) -- elliptical surface density with the
+    # line-of-sight projection amplitude 1/sqrt(n^T Q n) and its exact shear.
+    # model="pseudo": the previous pseudo-elliptical approximation (spherical NFW
+    # shear at an area-preserving elliptical radius, rotated to the contour), kept
+    # only to reproduce simulations made before that date; it loses ~20% of the
+    # orientation-averaged tangential shear and has no line-of-sight amplitude.
+    if model == "exact":
+        return _apply_exact_triaxial_shear(cluster, galaxies, response)
+    if model != "pseudo":
+        raise ValueError(f"model must be 'exact' or 'pseudo', got {model!r}")
+
     q_maj, q_min, pa_intrinsic = project_ellipsoid(a, b, c, theta_los, phi_los)
     pa = pa_intrinsic + pa_offset
 
@@ -436,6 +448,50 @@ def apply_triaxial_NFW_shear_region(cluster, galaxies, response=None):
 
         gammas[bg_mask] = gammat * np.exp(2j * phi_eff)
 
+    sheared_e = add_shears(galaxies[:, 3] + 1j * galaxies[:, 4], gammas)
+    galaxies[:, 3] = sheared_e.real
+    galaxies[:, 4] = sheared_e.imag
+    return galaxies
+
+
+def _apply_exact_triaxial_shear(cluster, galaxies, response=None):
+    """Exact triaxial-NFW shear (see xlensing.triaxial); same interface and sky
+    conventions as apply_triaxial_NFW_shear_region(model="pseudo")."""
+    from xlensing.triaxial import projected_ellipse, triaxial_nfw_shear
+    a, b, c = cluster[5], cluster[6], cluster[7]
+    theta_los, phi_los = cluster[8], cluster[9]
+    pa_offset = cluster[10] if len(cluster) > 10 else 0.0
+    lam1, lam2, pa_intrinsic, nQn = projected_ellipse((a, b, c), theta_los, phi_los)
+    pa = pa_intrinsic + pa_offset
+
+    bg_mask = galaxies[:, 2] > cluster[2]
+    gammas = np.zeros(len(galaxies), dtype=complex)
+    if bg_mask.any():
+        bg = galaxies[bg_mask]
+        z_lens = float(cluster[2])
+        DA_lens = DA(0, z_lens)
+        sep, theta = equatorial_to_polar(cluster[0], cluster[1], bg[:, 0], bg[:, 1])
+        dx = DA_lens * sep * np.sin(theta)
+        dy = DA_lens * sep * np.cos(theta)
+        s_, c_ = np.sin(pa), np.cos(pa)
+        u = dx * s_ + dy * c_                  # along the projected major axis
+        v = dx * c_ - dy * s_                  # along the projected minor axis
+        z_src = bg[:, 2]
+        sigcrit = (lightspeed**2 / (4 * np.pi * gravity)) * DA(0, z_src) / (DA_lens * DA(z_lens, z_src))
+        rs = r_vir(z_lens, cluster[3]) / cluster[4]
+        fact = 2.0 * rs * NFW_delta_c(cluster[4]) * rhoM(z_lens)      # Sigma of the unit profile
+        g1u, g2u, _ = triaxial_nfw_shear(u, v, rs, lam1, lam2, nQn)
+        # shear tensor from the (u, v) basis, u_hat = (s, c), v_hat = (c, -s) in (dx, dy),
+        # to the (dx, dy) basis: Gamma = R Gamma' R^T
+        g1 = -g1u * np.cos(2 * pa) + g2u * np.sin(2 * pa)
+        g2 = g1u * np.sin(2 * pa) + g2u * np.cos(2 * pa)
+        scale = fact / sigcrit
+        if response is not None:
+            scale = scale * np.asarray(response)[bg_mask]
+        # this module's complex-shear convention (see the spherical path, e = gamma_t
+        # exp(2i theta) with theta = atan2(dx, dy)) is the conjugate of the standard
+        # gamma1 + i gamma2 in the (x=dx, y=dy) frame
+        gammas[bg_mask] = scale * (g1 - 1j * g2)
     sheared_e = add_shears(galaxies[:, 3] + 1j * galaxies[:, 4], gammas)
     galaxies[:, 3] = sheared_e.real
     galaxies[:, 4] = sheared_e.imag
