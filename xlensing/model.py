@@ -191,7 +191,40 @@ def Delta_Sigma_l(z, R):
     G = _G_spline(u.ravel()).reshape(u.shape)
     return 2 / R**2 * G - Sigma_l(z[:, None], R[None, :])
 
-def NFW_Delta_Sigma(M200m, C200m, Z, FMISS, SIGMA_OFF, BCG_B_MASS, radii):
+def log_bin_limits(radii):
+    """Bin edges for logarithmically spaced bin centres ``radii``: edges halfway
+    between neighbouring centres in log R, the outermost half a bin beyond the
+    first and last centre.  Returns an (N_bins, 2) array in the layout used by
+    ``xlensing.data.signal`` / ``stacked_signal`` (``bin_limits``)."""
+    radii = np.asarray(radii, dtype=float)
+    if radii.size < 2:
+        raise ValueError("log_bin_limits needs at least two radii")
+    lr = np.log10(radii)
+    d = np.diff(lr)
+    edges = 10.0 ** np.concatenate([[lr[0] - d[0] / 2], 0.5 * (lr[:-1] + lr[1:]), [lr[-1] + d[-1] / 2]])
+    return np.column_stack([edges[:-1], edges[1:]])
+
+
+def bin_average_nodes(bin_limits, n_nodes=4):
+    """Radii and weights for the area-weighted average of a profile over annular bins.
+
+    For sources spread uniformly over the sky, the expected binned measurement is
+    the area-weighted mean over the annulus [R1, R2]:
+
+        <f> = int f(R) 2 pi R dR / [pi (R2^2 - R1^2)] = mean of f over t = R^2 in [R1^2, R2^2],
+
+    evaluated with ``n_nodes`` Gauss-Legendre points in t (4 nodes reproduce an NFW
+    bin average to ~3e-6).  ``bin_limits``: (N_bins, 2) edges.  Returns
+    (node_radii (N_bins, n_nodes), weights (n_nodes,)) with sum(weights) == 1.
+    """
+    bl = np.atleast_2d(np.asarray(bin_limits, dtype=float))
+    r1, r2 = bl[:, 0], bl[:, 1]
+    x, w = np.polynomial.legendre.leggauss(int(n_nodes))
+    t = r1[:, None] ** 2 + (r2[:, None] ** 2 - r1[:, None] ** 2) * 0.5 * (x[None, :] + 1.0)
+    return np.sqrt(t), 0.5 * w
+
+
+def NFW_Delta_Sigma(M200m, C200m, Z, FMISS, SIGMA_OFF, BCG_B_MASS, radii, bin_limits=None, n_nodes=4):
     """
     NFW MODEL:
 
@@ -202,12 +235,35 @@ def NFW_Delta_Sigma(M200m, C200m, Z, FMISS, SIGMA_OFF, BCG_B_MASS, radii):
     - SIGMA_OFF: array of characteristic miscentering
     - BCG_B_MASS: array of baryonic masses of central galaxies
     - radii: a collection of radii at which we calculate the model (mpc)
+    - bin_limits: optional (N_bins, 2) radial bin edges [Mpc], the same array
+      passed to ``xlensing.data.signal`` / ``stacked_signal``.  When given, every
+      component is the area-weighted average over each bin (see
+      ``bin_average_nodes``), which is what a binned measurement estimates;
+      ``radii`` should then be the bin centres (used only for the returned
+      'radii').  When None (default), the profile is evaluated at ``radii``.
+      ``log_bin_limits(radii)`` gives the edges for log-spaced centres.
+    - n_nodes: Gauss-Legendre nodes per bin for the average (default 4).
 
     RETURNS:
 
     A dict with each value an (N, M) array giving the signal in Msun/pc2.
     """
+    radii = np.asarray(radii, dtype=float)
+    if bin_limits is not None:
+        nodes, wts = bin_average_nodes(bin_limits, n_nodes)
+        if nodes.shape[0] != radii.size:
+            raise ValueError(f"bin_limits has {nodes.shape[0]} bins but radii has {radii.size} values")
+        comps = _nfw_delta_sigma_components(M200m, C200m, Z, FMISS, SIGMA_OFF, BCG_B_MASS, nodes.ravel())
+        shape = (len(np.atleast_1d(Z)), nodes.shape[0], nodes.shape[1])
+        comps = {k: (v.reshape(shape) * wts).sum(axis=-1) for k, v in comps.items()}
+    else:
+        comps = _nfw_delta_sigma_components(M200m, C200m, Z, FMISS, SIGMA_OFF, BCG_B_MASS, radii)
+    comps['radii'] = radii
+    return comps
 
+
+def _nfw_delta_sigma_components(M200m, C200m, Z, FMISS, SIGMA_OFF, BCG_B_MASS, radii):
+    """Point evaluation of every NFW_Delta_Sigma component at ``radii``."""
     rs   = r_vir_m(Z, M200m) / C200m                    # (N,)
     fact = 2 * rs * NFW_delta_c(C200m) * cosmo.rhoM(Z)  # (N,)
     xi   = SIGMA_OFF / rs                                # (N,)
@@ -234,5 +290,4 @@ def NFW_Delta_Sigma(M200m, C200m, Z, FMISS, SIGMA_OFF, BCG_B_MASS, radii):
         'NFW Signal':         signal_NFW_centre,
         'Miscentered Signal': signal_NFW_miscc,
         'Two-halo term':      signal_2ht,
-        'radii':              radii,
     }

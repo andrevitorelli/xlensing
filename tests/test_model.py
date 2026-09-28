@@ -356,3 +356,34 @@ def test_miscentering_small_offset_is_centred():
     x = np.array([0.2, 1.0, 5.0])
     np.testing.assert_allclose(Delta_Sigma_NFW_off_x(x[None, :], np.array([1e-5]))[0],
                                SigBar(x) - SigX(x), rtol=2e-3)
+
+
+# --- bin-averaged model (2026-09-28) ----------------------------------------------
+
+def test_bin_average_nodes_power_law():
+    """Area-weighted bin average of R^-1 over [R1, R2] is 2 / (R1 + R2)."""
+    import numpy as np
+    from xlensing.model import bin_average_nodes, log_bin_limits
+    bl = log_bin_limits(np.logspace(-0.8, 0.6, 8))
+    nodes, w = bin_average_nodes(bl, 4)
+    np.testing.assert_allclose((1.0 / nodes) @ w, 2.0 / (bl[:, 0] + bl[:, 1]), rtol=1e-5)
+
+
+def test_nfw_delta_sigma_bin_limits():
+    """Without bin_limits the model is evaluated at radii (unchanged); with them every
+    component is the bin average, converged at 4 nodes."""
+    import numpy as np
+    from xlensing.model import NFW_Delta_Sigma, log_bin_limits, _nfw_delta_sigma_components
+    R = np.logspace(-0.8, 0.6, 8); bl = log_bin_limits(R)
+    z, M, c = np.array([0.3, 0.5]), np.array([2e14, 5e14]), np.array([4.0, 6.0])
+    f, so, b = np.array([0.3, 0.3]), np.array([0.4, 0.4]), np.array([1e11, 0.0])
+    pt = NFW_Delta_Sigma(M, c, z, f, so, b, R)
+    ref = _nfw_delta_sigma_components(M, c, z, f, so, b, R)
+    for k in ref:
+        np.testing.assert_array_equal(pt[k], ref[k])
+    a4 = NFW_Delta_Sigma(M, c, z, f, so, b, R, bin_limits=bl)
+    a32 = NFW_Delta_Sigma(M, c, z, f, so, b, R, bin_limits=bl, n_nodes=32)
+    for k in ref:
+        np.testing.assert_allclose(a4[k], a32[k], rtol=1e-4, atol=1e-12)
+    np.testing.assert_allclose(a4["Signal"], a4["BCG Signal"] + 0.7 * a4["NFW Signal"]
+                               + 0.3 * a4["Miscentered Signal"] + a4["Two-halo term"], rtol=1e-12)
