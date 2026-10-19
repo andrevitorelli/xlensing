@@ -1,7 +1,13 @@
 import numpy as np
 from . import cosmo
 
-sigmacrit = lambda z_d, z_s: ((cosmo.lightspeed**2.)/(4*np.pi*cosmo.gravity))*cosmo.DA(0,z_s)/(cosmo.DA(0,z_d)*cosmo.DA(z_d,z_s))
+def sigmacrit(z_d, z_s):
+    """Critical surface density Sigma_crit [Msun/Mpc^2] for a lens at ``z_d`` and sources at ``z_s``.
+
+    Sigma_crit = c^2 D_s / (4 pi G D_d D_ds).  Accepts arrays.  The
+    measurement functions divide it by 1e12 to work in Msun/pc^2.
+    """
+    return ((cosmo.lightspeed**2.)/(4*np.pi*cosmo.gravity))*cosmo.DA(0,z_s)/(cosmo.DA(0,z_d)*cosmo.DA(z_d,z_s))
 
 #Angular Separation between two points in the sky
 def equatorial_to_polar(lon1, lat1, lon2, lat2):
@@ -14,10 +20,9 @@ def equatorial_to_polar(lon1, lat1, lon2, lat2):
 
     Returns
     -------
-    Sep :  float
-      Separation in radians
-    theta: float
-      Azimuth respective to meridian      
+    dict
+        ``'sep'``: angular separation [rad]; ``'theta'``: azimuth relative to
+        the meridian [rad].  Both have the broadcast shape of the inputs.
 
     Notes
     -----
@@ -54,11 +59,11 @@ def equatorial_to_polar(lon1, lat1, lon2, lat2):
     return result 
     
 def cap_area(radius):
-    """Calculates the solid angle of a cap"""
+    """Solid angle [arcmin^2] of a spherical cap of angular radius ``radius`` [rad]."""
     Omega = 2.0*np.pi*(1-np.cos(radius))*3282.810874*3600 #arcmin^2
     return Omega
 def annular_area(rad1,rad2):
-    """Calculates the solid angle of a annulus"""
+    """Solid angle [arcmin^2] of the annulus between angular radii ``rad1`` < ``rad2`` [rad]."""
     return cap_area(rad2)-cap_area(rad1)
 
 def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
@@ -140,6 +145,10 @@ def lensfit_cluster_lensing(cluster,sources,radius,sys_angle=np.pi/2):
     return result
 
 def tangential_response(R11, R12, R21, R22,phi):
+  """Tangential component of the metacalibration response matrix at position angle ``phi`` [rad].
+
+  R_T = R11 cos^2(2 phi) + R22 sin^2(2 phi) + (R12 + R21) sin(2 phi) cos(2 phi).
+  """
   Rt = R11*np.cos(2*phi)**2 + R22*np.sin(2*phi)**2 + (R12+R21)*np.sin(2*phi)*np.cos(2*phi)
   return Rt
 
@@ -643,20 +652,24 @@ def single_cluster(cluster_backgrounds, bin_limits, Nboot=500):
             Delta_Sigmas_corr[:, b] = boost_boot[:, b] * DS_raw
             Delta_Xigmas_corr[:, b] = boost_boot[:, b] * DX_raw
 
-    # Drop bootstrap iterations with any NaN/Inf in DS or DX so the
-    # covariance is internally consistent across bins.
-    valid = (np.all(np.isfinite(Delta_Sigmas_corr), axis=1)
-             & np.all(np.isfinite(Delta_Xigmas_corr), axis=1))
-    if valid.sum() < 2:
-        sigmas = np.full(Nbins, np.nan)
-        xigmas = np.full(Nbins, np.nan)
-        sigmas_cov = np.full((Nbins, Nbins), np.nan)
-        xigmas_cov = np.full((Nbins, Nbins), np.nan)
-    else:
-        sigmas     = Delta_Sigmas_corr[valid].mean(axis=0)
-        xigmas     = Delta_Xigmas_corr[valid].mean(axis=0)
-        sigmas_cov = np.cov(Delta_Sigmas_corr[valid].T)
-        xigmas_cov = np.cov(Delta_Xigmas_corr[valid].T)
+    # A single cluster can have radial bins with no sources at all; such a
+    # bin is NaN in every iteration and is reported as NaN, without
+    # discarding the other bins.  Among the bins that are usable (finite in
+    # at least half of the iterations), drop bootstrap iterations with any
+    # NaN/Inf in DS or DX so the covariance is internally consistent.
+    finite = np.isfinite(Delta_Sigmas_corr) & np.isfinite(Delta_Xigmas_corr)
+    usable = finite.mean(axis=0) >= 0.5
+    valid = np.all(finite[:, usable], axis=1)
+    sigmas = np.full(Nbins, np.nan)
+    xigmas = np.full(Nbins, np.nan)
+    sigmas_cov = np.full((Nbins, Nbins), np.nan)
+    xigmas_cov = np.full((Nbins, Nbins), np.nan)
+    if usable.any() and valid.sum() >= 2:
+        ix = np.ix_(usable, usable)
+        sigmas[usable] = Delta_Sigmas_corr[valid][:, usable].mean(axis=0)
+        xigmas[usable] = Delta_Xigmas_corr[valid][:, usable].mean(axis=0)
+        sigmas_cov[ix] = np.atleast_2d(np.cov(Delta_Sigmas_corr[valid][:, usable].T))
+        xigmas_cov[ix] = np.atleast_2d(np.cov(Delta_Xigmas_corr[valid][:, usable].T))
 
     # Boost stats with per-iteration zero-count masking: a bootstrap row
     # that drew no galaxies in bin b carries no information about that

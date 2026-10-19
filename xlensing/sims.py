@@ -6,29 +6,32 @@ from xlensing.cosmo import DA, cosmology,cluster_overdensity,lightspeed,gravity,
 
 
 def rhoM(z):
-  """Mass fraction of the critical mass density of the universe"""
+  """Matter density OmegaM * rho_crit(z) [Msun/Mpc^3], as :func:`xlensing.cosmo.rhoM` (see the note there)."""
   mass_density = OmegaM*cosmology.critical_density(z).to('Msun/Mpc**3').value
   return mass_density
 
 def r_vir(zlens, Mlens):
-  """Virial radius of an spherical halo of mass Mlens at redshift zlens"""
+  """Radius [Mpc] of a spherical halo of mass ``Mlens`` [Msun] at redshift ``zlens``, at Delta times :func:`rhoM`."""
   radius = ((3.*Mlens)/(rhoM(zlens)*4.*np.pi*cluster_overdensity))**(1./3.)
   return radius
 
 def NFW_delta_c(conc):
-  """relationship between the concentration and the NFW mass distribution"""
+  """NFW characteristic overdensity delta_c for concentration ``conc`` (as :func:`xlensing.model.NFW_delta_c`)."""
   deltac = (cluster_overdensity/3.)*((conc**3)/(np.log(1.+conc)-conc/(1.+conc)))
   return deltac
 
 def critical_density(zlens, zsource):
-  """Critical density"""
+  """Critical surface density [Msun/Mpc^2] for a lens at ``zlens`` and a source at ``zsource`` (vectorised)."""
   sigmacrit = (lightspeed**2.)/(4*np.pi*gravity)*DA(0,zsource)/(DA(0,zlens)*DA(zlens,zsource))
   return np.heaviside(zsource,zlens)*sigmacrit
 
 critical_density = np.vectorize(critical_density)
 
 def gNFW(x):
-  """shear caused by an NFW profile in adimensional radii"""
+  """Dimensionless tangential shear of an NFW halo at x = R / r_s (Wright & Brainerd 2000), scalar ``x``.
+
+  Multiply by r_s delta_c rho_m / Sigma_crit for the shear.
+  """
   if x<1:
     g = 8*np.arctanh(np.sqrt((1-x)/(1+x)))/(x**2*np.sqrt(1-x**2)) + 4/(x**2)*np.log(x/2) - 2/(x**2-1) + 4*np.arctanh(np.sqrt((1-x)/(1+x)))/( (x**2-1)*np.sqrt(1-x**2) )
   if x>1:
@@ -40,7 +43,7 @@ def gNFW(x):
 _gNFW_vec = np.vectorize(gNFW, otypes=[float])
 
 def NFW_tangential_shear(Mlens, conc, zlens, zsource, r):
-  """NFW shear in physical coordinates at the plane of the lens"""  
+  """Tangential shear of a spherical NFW halo (``Mlens`` [Msun], ``conc``, ``zlens``) on a source at ``zsource`` at projected radius ``r`` [Mpc] (vectorised)."""  
   #define scale radius of NFW
   rs= r_vir(zlens,Mlens)/conc
   #Rescaled radiii
@@ -54,6 +57,10 @@ def NFW_tangential_shear(Mlens, conc, zlens, zsource, r):
 NFW_tangential_shear = np.vectorize(NFW_tangential_shear)
 
 def equatorial_to_polar(lon1, lat1, lon2, lat2):
+  """Angular separation and position angle [rad] of points 1 relative to point 2 (Vincenty formula).
+
+  Same convention as :func:`xlensing.data.equatorial_to_polar`; all inputs in radians.
+  """
   #vincenty's formula
   sdlon = np.sin(lon2 - lon1)
   cdlon = np.cos(lon2 - lon1)
@@ -73,7 +80,11 @@ def equatorial_to_polar(lon1, lat1, lon2, lat2):
   return sep, theta
 
 def NFW_wcs_cluster_shear(Mlens,conc,zlens,zsource,cluster_RA,cluster_DEC,source_RA,source_DEC):
-  """NFW shear in the sky"""
+  """Complex shear g1 + i g2 of a spherical NFW halo on sources at (``source_RA``, ``source_DEC``) [rad].
+
+  The cluster is at (``cluster_RA``, ``cluster_DEC``) with mass ``Mlens`` [Msun],
+  concentration ``conc`` and redshift ``zlens``; ``zsource`` are the source redshifts.
+  """
   #compute angular diameter distance
   cluster_DA = DA(0,zlens)
   #compute separation and azimuth
@@ -87,7 +98,7 @@ def NFW_wcs_cluster_shear(Mlens,conc,zlens,zsource,cluster_RA,cluster_DEC,source
   return g
 
 def add_shears(e,eadd):
-  """sum shears"""
+  """Exact composition of an intrinsic ellipticity ``e`` with a shear ``eadd`` (complex): (e + g) / (1 + g* e)."""
   sume = (e+eadd)/(1+np.conj(eadd)*e)  
   return sume
 

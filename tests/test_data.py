@@ -359,7 +359,7 @@ def _make_cluster_list(N_clusters=10, N_gal=150, rng=None):
 
 def test_stacked_signal_output_shapes(bin_limits, capsys):
     clusters = _make_cluster_list()
-    sigmas, boosts, cov_t, xigmas, cov_x = d.stacked_signal(clusters, bin_limits, Nboot=100)
+    sigmas, boosts, boosts_cov, cov_t, xigmas, cov_x = d.stacked_signal(clusters, bin_limits, Nboot=100)
     Nb = len(bin_limits)
     assert sigmas.shape == (Nb,)
     assert boosts.shape == (Nb,)
@@ -369,7 +369,7 @@ def test_stacked_signal_output_shapes(bin_limits, capsys):
 
 def test_stacked_signal_covariance_symmetric(bin_limits, capsys):
     clusters = _make_cluster_list()
-    _, _, cov_t, _, cov_x = d.stacked_signal(clusters, bin_limits, Nboot=200)
+    _, _, _, cov_t, _, cov_x = d.stacked_signal(clusters, bin_limits, Nboot=200)
     np.testing.assert_allclose(cov_t, cov_t.T, atol=1e-15)
     np.testing.assert_allclose(cov_x, cov_x.T, atol=1e-15)
 
@@ -382,14 +382,14 @@ def test_stacked_signal_zero_shear_zero_mean(bin_limits, capsys):
         s[1] = 0.0  # e_t = 0
         s[2] = 0.0  # e_x = 0
         clusters.append(s)
-    sigmas, _, _, xigmas, _ = d.stacked_signal(clusters, bin_limits, Nboot=100)
+    sigmas, _, _, _, xigmas, _ = d.stacked_signal(clusters, bin_limits, Nboot=100)
     np.testing.assert_allclose(sigmas, 0.0, atol=1e-10)
     np.testing.assert_allclose(xigmas, 0.0, atol=1e-10)
 
 
 def test_stacked_signal_boosts_positive(bin_limits, capsys):
     clusters = _make_cluster_list()
-    _, boosts, _, _, _ = d.stacked_signal(clusters, bin_limits, Nboot=50)
+    _, boosts, _, _, _, _ = d.stacked_signal(clusters, bin_limits, Nboot=50)
     assert np.all(boosts > 0)
 
 
@@ -399,7 +399,7 @@ def test_stacked_signal_boosts_positive(bin_limits, capsys):
 
 def test_single_cluster_output_shapes(bin_limits, capsys):
     clusters = [_make_stake(N=400)]
-    sigmas, cov_t, xigmas, cov_x = d.single_cluster(clusters, bin_limits, Nboot=100)
+    sigmas, _, _, cov_t, xigmas, cov_x = d.single_cluster(clusters, bin_limits, Nboot=100)
     Nb = len(bin_limits)
     assert sigmas.shape == (Nb,)
     assert cov_t.shape == (Nb, Nb)
@@ -408,7 +408,7 @@ def test_single_cluster_output_shapes(bin_limits, capsys):
 
 def test_single_cluster_covariance_symmetric(bin_limits, capsys):
     clusters = [_make_stake(N=400)]
-    _, cov_t, _, cov_x = d.single_cluster(clusters, bin_limits, Nboot=200)
+    _, _, _, cov_t, _, cov_x = d.single_cluster(clusters, bin_limits, Nboot=200)
     np.testing.assert_allclose(cov_t, cov_t.T, atol=1e-15)
     np.testing.assert_allclose(cov_x, cov_x.T, atol=1e-15)
 
@@ -418,7 +418,7 @@ def test_single_cluster_zero_shear_zero_mean(bin_limits, capsys):
     s = _make_stake(N=400, rng=rng)
     s[1] = 0.0
     s[2] = 0.0
-    sigmas, _, xigmas, _ = d.single_cluster([s], bin_limits, Nboot=100)
+    sigmas, _, _, _, xigmas, _ = d.single_cluster([s], bin_limits, Nboot=100)
     np.testing.assert_allclose(sigmas, 0.0, atol=1e-10)
     np.testing.assert_allclose(xigmas, 0.0, atol=1e-10)
 
@@ -435,7 +435,7 @@ def test_single_cluster_empty_bin_handled(capsys):
     M   = np.zeros(N)
     stake = np.vstack([sig, et, ex, W, R, M])
     bins = np.array([[0.1, 0.4], [2.0, 3.0]])
-    sigmas, cov_t, _, _ = d.single_cluster([stake], bins, Nboot=50)
+    sigmas, _, _, cov_t, _, _ = d.single_cluster([stake], bins, Nboot=50)
     # second bin should be nan; first should be finite
     assert np.isfinite(sigmas[0])
     assert np.isnan(sigmas[1])

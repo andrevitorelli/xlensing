@@ -1,7 +1,13 @@
+"""Legacy toy catalogue generator and simple NFW shear injection.
+
+Kept for the example notebooks.  For realistic simulations (metacalibration-
+like catalogues, spherical and triaxial NFW shear) use :mod:`xlensing.sims`.
+"""
 import numpy as np
 from . import cosmo, model, data
 
 def truncnorm(low, high, loc, sigma, size): #I hate scipy truncnorm
+    """Draw ``size`` samples from N(loc, sigma) truncated to (low, high) by rejection."""
     x = []
     while len(x)<size:
         xi = np.random.normal(loc,sigma)
@@ -10,6 +16,13 @@ def truncnorm(low, high, loc, sigma, size): #I hate scipy truncnorm
     return np.array(x)
 
 def gen_gal(Ngals=1e5,Zcluster=.3,rmax=12., gmax=.6,gspread=.1):
+  """Toy background catalogue around a cluster at ``Zcluster``.
+
+  Galaxies are uniform in projected radius (< ``rmax`` Mpc) and in redshift
+  (0-1), with truncated-Gaussian ellipticity components (dispersion 0.1,
+  |e_i| < ``gmax``).  Returns (e1, e2, RA, DEC, z), positions in radians
+  relative to the cluster centre.
+  """
   Ngals = int(Ngals)
   Zgals = np.random.uniform(0,1,size=int(Ngals))
 
@@ -29,7 +42,7 @@ def gen_gal(Ngals=1e5,Zcluster=.3,rmax=12., gmax=.6,gspread=.1):
   
 def gNFW(x):
   """
-  Expected reduced shear of an NFW profile
+  Dimensionless tangential shear of an NFW profile at x = R / r_s (scalar ``x``).
   """
   if x<1:
       g = 8*np.arctanh(np.sqrt((1-x)/(1+x)))/(x**2*np.sqrt(1-x**2)) + 4/(x**2)*np.log(x/2) - 2/(x**2-1) + 4*np.arctanh(np.sqrt((1-x)/(1+x)))/( (x**2-1)*np.sqrt(1-x**2) )
@@ -72,7 +85,8 @@ def NFW_shear(cluster, galaxies):
   gal_RA, gal_DEC, z_galaxy, e1, e2  = galaxies
 
   #find physical radius in the plane of the sky
-  sep, theta = data.equatorial_to_polar(gal_RA, gal_DEC, centre_RA, centre_DEC)
+  _pol = data.equatorial_to_polar(gal_RA, gal_DEC, centre_RA, centre_DEC)
+  sep, theta = _pol['sep'], _pol['theta']
   ang_dist = cosmo.cosmology.angular_diameter_distance(z_lens).value
   r = sep*ang_dist
   theta= theta +np.pi/2 #the polar angle is 90º different from the tangent (I took 6 years to figure this out)
@@ -83,7 +97,7 @@ def NFW_shear(cluster, galaxies):
   Ngals = len(intr_shape)
 
   #define scale radius of NFW
-  rs= model.r_vir(z_lens,Mvir)/conc
+  rs= model.r_vir_m(z_lens,Mvir)/conc
 
   #NFW kappa factor
   fact =  rs*model.NFW_delta_c(conc)*cosmo.rhoM(z_lens)

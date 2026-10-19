@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xlensing"
+version = "1.0.0"
+description = "Fast weak-lensing measurement, modelling and simulation of galaxy-cluster excess surface density profiles"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [{name = "Andre Z. Vitorelli"}]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.22",
+    "scipy>=1.8",
+    "astropy>=5.0",
+    "ngmix>=2.0",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+test = ["pytest", "pytest-cov"]
+
+[project.urls]
+Homepage = "https://github.com/andrevitorelli/xlensing"
+
+[tool.setuptools]
+packages = ["xlensing"]
+
+[tool.setuptools.package-data]
+xlensing = ["*.fits", "*.dat"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

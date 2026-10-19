@@ -48,7 +48,22 @@ from scipy.interpolate import CubicSpline, RegularGridInterpolator
 
 from xlensing.model import SigX
 
-_TABLE_PATH = os.path.join(os.path.dirname(__file__), "triaxial_nfw_shear_table.npz")
+_TABLE_NAME = "triaxial_nfw_shear_table.npz"
+
+
+def _table_path():
+    """Location of the shear table: $XLENSING_CACHE if set, else the package
+    directory if writable (development installs), else ~/.cache/xlensing."""
+    env = os.environ.get("XLENSING_CACHE")
+    if env:
+        return os.path.join(env, _TABLE_NAME)
+    pkg = os.path.dirname(__file__)
+    if os.path.exists(os.path.join(pkg, _TABLE_NAME)) or os.access(pkg, os.W_OK):
+        return os.path.join(pkg, _TABLE_NAME)
+    return os.path.join(os.path.expanduser("~"), ".cache", "xlensing", _TABLE_NAME)
+
+
+_TABLE_PATH = _table_path()
 _LOGR = np.linspace(-3.5, 3.0, 261)          # log10 of radius in units of the major-axis scale
 _PHI = np.linspace(0.0, np.pi / 2, 49)      # angle from the major axis (one quadrant)
 _Q = np.linspace(0.10, 1.00, 181)           # projected minor/major axis ratio
@@ -61,6 +76,7 @@ _spl = CubicSpline(_lx * np.log(10.0), _lg)            # ln SigX as a function o
 
 
 def _sig(x):
+    """Spline-interpolated SigX(x), safe for very small and very large x."""
     return np.exp(_spl(np.log(np.clip(x, 1e-8, 1e6))))
 
 
@@ -108,12 +124,14 @@ def build_table(path=_TABLE_PATH, n_nodes=256):
     ref = _gt_round(R)[..., None]
     xi = np.sqrt(X[..., None] ** 2 + Y[..., None] ** 2 / _Q ** 2)
     # tabulate smooth ratios: shear / round tangential shear at the same r, kappa / SigX(xi)
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     np.savez(path, logr=_LOGR, phi=_PHI, q=_Q, g1=g1 / ref, g2=g2 / ref, kappa=kp / _sig(xi))
     return path
 
 
 @lru_cache(maxsize=1)
 def _interpolators():
+    """Load (building it on first use) the shear table and return interpolators for g1, g2 and kappa."""
     if not os.path.exists(_TABLE_PATH):
         build_table()
     t = np.load(_TABLE_PATH)

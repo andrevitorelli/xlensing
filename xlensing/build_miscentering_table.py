@@ -40,6 +40,7 @@ XI_TAB = np.logspace(-3, np.log10(20.0), 100)   # xi = sigma_off / r_s (2020 tab
 
 
 def _sigma(x):
+    """SigX for arrays of any shape, with x floored at 1e-12."""
     x = np.maximum(np.asarray(x, dtype=float), 1e-12)
     return SigX(x.ravel()).reshape(x.shape)
 
@@ -72,6 +73,11 @@ def delta_sigma_mis(x_out, xi, n_fine=6000):
 
 
 def build(out_dir=HERE):
+    """Compute the table on (X_TAB, XI_TAB) and write misc_NFW_radii.fits and misc_NFW_profiles.fits to ``out_dir``.
+
+    Returns the (N_xi, N_x) array of dimensionless miscentred Delta Sigma.
+    Takes a few minutes.
+    """
     prof = np.array([delta_sigma_mis(X_TAB, xi) for xi in XI_TAB])          # (N_xi, N_x)
     Table({"col0": X_TAB}).write(os.path.join(out_dir, "misc_NFW_radii.fits"), overwrite=True)
     Table({"col0": XI_TAB, "col1": prof}).write(os.path.join(out_dir, "misc_NFW_profiles.fits"), overwrite=True)
